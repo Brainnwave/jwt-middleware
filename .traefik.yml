@@ -1,0 +1,11 @@
+displayName: Dynamic JWT Validation Middleware
+type: middleware
+import: github.com/brainnwave/jwt-middleware
+summary: Validates JWTs for access control. Fetches keys dynamically from whitelisted issuer JWKS as needed. Supports flexible claim checks with optional wildcards.
+iconPath: jwt.png
+testData:
+  issuers:
+    - https://auth.example.com
+  secret: ThisIsAPresharedSecret
+  require:
+    aud: test.example.com
