@@ -27,11 +27,3 @@ jobs:
         go mod vendor
     - name: Test
       run: go test -v -cover
-
-    - name: Coverage
-      uses: ncruces/go-coverage-report@v0
-      with:
-        report: 'true'
-        chart: 'true'
-        amend: 'false'
-      continue-on-error: true
