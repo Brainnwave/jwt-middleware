@@ -15,7 +15,7 @@ This is a middleware plugin for [Traefik](https://github.com/containous/traefik)
 experimental:
   plugins:
     jwt:
-      moduleName: github.com/brainnwave/jwt-middleware
+      moduleName: github.com/Brainnwave/jwt-middleware
       version: v1.0
 ```
 1b. or with command-line options:
@@ -23,7 +23,7 @@ experimental:
 ```yaml
 command:
   ...
-  - "--experimental.plugins.jwt.modulename=github.com/brainnwave/jwt-middleware"
+  - "--experimental.plugins.jwt.modulename=github.com/Brainnwave/jwt-middleware"
   - "--experimental.plugins.jwt.version=v1.0"
 ```
 
