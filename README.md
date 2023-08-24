@@ -102,7 +102,7 @@ https://client.example.com/api/data/123
 Config snippet:
 ```yaml
 require:
-  aud: {{.Host}}
+  aud: "{{`{{.Host}}`}}"
 ```
 
 JWT:
