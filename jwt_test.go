@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-jose/go-jose/v3"
 	"github.com/golang-jwt/jwt/v5"
+	"gopkg.in/yaml.v3"
 )
 
 type Test struct {
@@ -835,39 +836,54 @@ func TestCanonicalizeDomains(tester *testing.T) {
 }
 
 func TestCanonicalizeRequire(tester *testing.T) {
-	data := TemplateVariables{
+	var bad map[string]interface{}
+	variables := TemplateVariables{
 		URL: "test",
 	}
 
-	bad := map[string]interface{}{
-		"first":  "one {{.URL}}",
-		"second": []interface{}{"two {{.URL}}", "three {{.URL}}"},
-		"bad":    9,
+	texts := []string{
+		`
+first: "one {{.URL}}"
+second:
+  - "two {{.URL}}"
+  - "three {{.URL}}"
+bad: 9
+`,
+		`
+first: "one {{.URL}}"
+second:
+  - 9
+  - 10
+`,
 	}
-	_, err := canonicalizeRequire(bad)
-	if err == nil {
-		tester.Fatal("expected err")
+	for _, text := range texts {
+		err := yaml.Unmarshal([]byte(text), &bad)
+		if err != nil {
+			tester.Fatal(err)
+		}
+		_, err = canonicalizeRequire(bad)
+		if err == nil {
+			tester.Fatal("expected err")
+		}
 	}
 
-	bad2 := map[string]interface{}{
-		"first":  "one {{.URL}}",
-		"second": []interface{}{9, 10},
-	}
-	_, err = canonicalizeRequire(bad2)
-	if err == nil {
-		tester.Fatal("expected err")
-	}
+	text := `
+first: "one {{.URL}}"
+second:
+  - "two {{.URL}}"
+  - "three {{.URL}}"
+`
 
-	good := map[string]interface{}{
-		"first":  "one {{.URL}}",
-		"second": []interface{}{"two {{.URL}}", "three {{.URL}}"},
+	var good map[string]interface{}
+	err := yaml.Unmarshal([]byte(text), &good)
+	if err != nil {
+		tester.Fatal(err)
 	}
-
 	result, err := canonicalizeRequire(good)
 	if err != nil {
 		tester.Fatal(err)
 	}
-	value, err := expandTemplate(result["second"][0], &data)
+	value, err := expandTemplate(result["second"][0], &variables)
 	if err != nil {
 		tester.Fatal(err)
 	}

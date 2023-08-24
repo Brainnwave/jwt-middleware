@@ -313,18 +313,20 @@ func (plugin *JWTPlugin) fetchKeys(issuer string) error {
 func canonicalizeRequire(require map[string]interface{}) (map[string][]*template.Template, error) {
 	converted := make(map[string][]*template.Template, len(require))
 	for key, value := range require {
+		var templates []*template.Template
+		var err error
 		switch value := value.(type) {
 		case string:
-			converted[key], _ = createTemplates([]interface{}{value})
+			templates, err = createTemplates([]interface{}{value})
 		case []interface{}:
-			templates, err := createTemplates(value)
-			if err != nil {
-				return nil, err
-			}
-			converted[key] = templates
+			templates, err = createTemplates(value)
 		default:
 			return nil, fmt.Errorf("invalid type (%s) for required claim: %s", reflect.TypeOf(value), key)
 		}
+		if err != nil {
+			return nil, err
+		}
+		converted[key] = templates
 	}
 	return converted, nil
 }
