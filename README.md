@@ -4,7 +4,7 @@
 
 This is a middleware plugin for [Traefik](https://github.com/containous/traefik) with the following features:
 * Validation of JSON Web Tokens in cookies, headers, and/or query string parameters for access control.
-* Dynamic lookup of public keys from the well-known JWKS endpoint for whitelisted issuers.
+* Dynamic lookup of public keys from the well-known JWKS endpoint of whitelisted issuers.
 * HTTP redirects for unauthorized and forbidden calls when configured in interactive mode.
 * Flexible claim checks, including optional wildcards and Go template interpolation.
 
@@ -16,7 +16,7 @@ experimental:
   plugins:
     jwt:
       moduleName: github.com/Brainnwave/jwt-middleware
-      version: v1.0
+      version: v1.0.3
 ```
 1b. or with command-line options:
 
@@ -24,7 +24,7 @@ experimental:
 command:
   ...
   - "--experimental.plugins.jwt.modulename=github.com/Brainnwave/jwt-middleware"
-  - "--experimental.plugins.jwt.version=v1.0"
+  - "--experimental.plugins.jwt.version=v1.0.3"
 ```
 
 2) Configure and activate the plugin as a middleware in your dynamic traefik config:
@@ -38,8 +38,6 @@ http:
             - https://auth.example.com
           require:
             aud: test.example.com
-          headerMap:
-            X-User-ID: sub
 ```
 
 3) use the middleware in services via docker-compose labels
