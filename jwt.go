@@ -40,7 +40,7 @@ type JWTPlugin struct {
 	parser               *jwt.Parser
 	secret               string
 	issuers              []string
-	require              map[string][]*template.Template
+	require              map[string][]Requirement
 	lock                 sync.RWMutex
 	keys                 map[string]interface{}
 	issuerKeys           map[string]map[string]interface{}
@@ -55,12 +55,29 @@ type JWTPlugin struct {
 	freshness            int64
 }
 
-// TemplateVariables are the variables passed various Go templates for interpolation, such as the require and redirect templates.
+// TemplateVariables are the per-request variables passed to Go templates for interpolation, such as the require and redirect templates.
 type TemplateVariables struct {
 	URL    string
 	Scheme string
 	Host   string
 	Path   string
+}
+
+// Requirement is a requirement for a claim.
+type Requirement interface {
+	Validate(value interface{}, variables *TemplateVariables) bool
+}
+
+// ValueRequirement is a requirement for a claim that is a known value.
+type ValueRequirement struct {
+	value  interface{}
+	nested interface{}
+}
+
+// TemplateRequirement is a dynamic requirement for a claim that uses a template that needs interpolating per request.
+type TemplateRequirement struct {
+	template *template.Template
+	nested   interface{}
 }
 
 // CreateConfig creates the default plugin configuration.
@@ -78,17 +95,13 @@ func CreateConfig() *Config {
 func New(_ context.Context, next http.Handler, config *Config, name string) (http.Handler, error) {
 	log.SetFlags(0)
 
-	require, err := canonicalizeRequire(config.Require)
-	if err != nil {
-		return nil, err
-	}
 	plugin := JWTPlugin{
 		next:                 next,
 		name:                 name,
 		parser:               jwt.NewParser(jwt.WithValidMethods(config.ValidMethods)),
 		secret:               config.Secret,
 		issuers:              canonicalizeDomains(config.Issuers),
-		require:              require,
+		require:              convertRequire(config.Require),
 		keys:                 make(map[string]interface{}),
 		issuerKeys:           make(map[string]map[string]interface{}),
 		optional:             config.Optional,
@@ -118,7 +131,7 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 // ServeHTTP is the middleware entry point.
 func (plugin *JWTPlugin) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	variables := plugin.createTemplateVariables(request)
-	status, err := plugin.Validate(request)
+	status, err := plugin.Validate(request, variables)
 	if err != nil {
 		if plugin.redirectUnauthorized != nil {
 			// Interactive clients should be redirected to the login page or unauthorized page.
@@ -145,7 +158,7 @@ func (plugin *JWTPlugin) ServeHTTP(response http.ResponseWriter, request *http.R
 }
 
 // Validate validates the request and returns the HTTP status code or an error if the request is not valid. It also sets any headers that should be forwarded to the backend.
-func (plugin *JWTPlugin) Validate(request *http.Request) (int, error) {
+func (plugin *JWTPlugin) Validate(request *http.Request, variables *TemplateVariables) (int, error) {
 	token := plugin.extractToken(request)
 	if token == "" {
 		// No token provided
@@ -162,12 +175,8 @@ func (plugin *JWTPlugin) Validate(request *http.Request) (int, error) {
 		claims := token.Claims.(jwt.MapClaims)
 
 		// Validate claims
-		for claim, expected := range plugin.require {
-			expected, err := expandTemplates(expected, plugin.createTemplateVariables(request))
-			if err != nil {
-				return http.StatusInternalServerError, err
-			}
-			result := plugin.ValidateClaim(claim, expected, claims)
+		for claim, requirements := range plugin.require {
+			result := plugin.ValidateClaim(claim, claims, requirements, variables)
 			if !result {
 				err := fmt.Errorf("claim is not valid: %s", claim)
 				// If the token is older than out freshness window, we allow that reauthorization might fix it
@@ -192,40 +201,128 @@ func (plugin *JWTPlugin) Validate(request *http.Request) (int, error) {
 	return http.StatusOK, nil
 }
 
-// ValidateClaim validates a single claim, switching on the type and calling ValidateValue for each until valid or not.
-func (plugin *JWTPlugin) ValidateClaim(claim string, expected []string, claims jwt.MapClaims) bool {
-	value, ok := claims[claim]
-	if ok {
-		switch value := value.(type) {
-		case string:
-			return plugin.ValidateValue(value, expected)
-
-		case []interface{}: // List
-			for _, item := range value {
-				switch item := item.(type) {
-				case string:
-					if plugin.ValidateValue(item, expected) {
-						return true
-					}
-				}
+// Validate checks value against the requirement, calling ourself recursively for object and array values.
+// variables is required in the interface and passed on recusrively by ultimately ignored bu ValueRequirement
+// having been already interpolated by TemplateRequirement
+func (requirement ValueRequirement) Validate(value interface{}, variables *TemplateVariables) bool {
+	switch value := value.(type) {
+	case []interface{}:
+		for _, value := range value {
+			if requirement.Validate(value, variables) {
+				return true
 			}
+		}
+	case map[string]interface{}:
+		for value, nested := range value {
+			if requirement.Validate(value, variables) && requirement.ValidateNested(nested) {
+				return true
+			}
+		}
+	case string:
+		required, ok := requirement.value.(string)
+		if !ok {
+			return false
+		}
+		return fnmatch.Match(value, required, 0) || value == fmt.Sprintf("*.%s", required)
+	}
 
-		case map[string]interface{}: // Object
-			for item := range value {
-				if plugin.ValidateValue(item, expected) {
-					return true
-				}
+	return reflect.DeepEqual(value, requirement.value)
+}
+
+// ValidateNested checks value against the nested requirement
+func (requirement ValueRequirement) ValidateNested(value interface{}) bool {
+	// The nested requirement may be a single required value, or an OR choice of acceptable values. Convert to a slice of values.
+	var required []interface{}
+	switch nested := requirement.nested.(type) {
+	case nil:
+		// If the nested requirement is nil, we don't care about the nested claims that brought us here and the value is always valid.
+		return true
+	case []interface{}:
+		required = nested
+	case interface{}:
+		required = []interface{}{nested}
+	}
+
+	// Likewise, the value may be a single claim value or an array of several granted claims values. Convert to a slice of values.
+	var supplied []interface{}
+	switch value := value.(type) {
+	case []interface{}:
+		supplied = value
+	case interface{}:
+		supplied = []interface{}{value}
+	}
+
+	// If any of the values match any of the nested requirement, the claim is valid.
+	for _, required := range required {
+		for _, supplied := range supplied {
+			if reflect.DeepEqual(required, supplied) {
+				return true
 			}
 		}
 	}
 	return false
 }
 
-// ValidateValue validates a single value against a list of expected values using fnmatch-style matching if specified
-func (plugin *JWTPlugin) ValidateValue(value string, expected []string) bool {
-	for _, expected := range expected {
-		if fnmatch.Match(value, expected, 0) {
-			return true
+// Validate interpolates the requirement template with the given variables and then delegates to ValueRequirement.
+func (requirement TemplateRequirement) Validate(value interface{}, variables *TemplateVariables) bool {
+	var buffer bytes.Buffer
+	err := requirement.template.Execute(&buffer, variables)
+	if err != nil {
+		log.Printf("Error executing template: %s", err)
+		return false
+	}
+	return ValueRequirement{value: buffer.String(), nested: requirement.nested}.Validate(value, variables)
+}
+
+// convertRequire converts the require configuration to a map of requirements.
+func convertRequire(require map[string]interface{}) map[string][]Requirement {
+	converted := make(map[string][]Requirement, len(require))
+	for key, value := range require {
+		switch value := value.(type) {
+		case []interface{}:
+			requirements := make([]Requirement, len(value))
+			for index, value := range value {
+				requirements[index] = createRequirement(value, nil)
+			}
+			converted[key] = requirements
+		case map[string]interface{}:
+			requirements := make([]Requirement, len(value))
+			index := 0
+			for key, value := range value {
+				requirements[index] = createRequirement(key, value)
+				index++
+			}
+			converted[key] = requirements
+		default:
+			converted[key] = []Requirement{createRequirement(value, nil)}
+		}
+
+	}
+	return converted
+}
+
+// createRequirement creates a Requirement of the correct type from the given value (and any nested value).
+func createRequirement(value interface{}, nested interface{}) Requirement {
+	switch value := value.(type) {
+	case string:
+		if strings.Contains(value, "{{") && strings.Contains(value, "}}") {
+			return TemplateRequirement{
+				template: template.Must(template.New("template").Parse(value)),
+				nested:   nested,
+			}
+		}
+	}
+	return ValueRequirement{value: value, nested: nested}
+}
+
+// ValidateClaim
+func (plugin *JWTPlugin) ValidateClaim(claim string, claims jwt.MapClaims, requirements []Requirement, variables *TemplateVariables) bool {
+	value, ok := claims[claim]
+	if ok {
+		for _, requirement := range requirements {
+			if requirement.Validate(value, variables) {
+				return true
+			}
 		}
 	}
 	return false
@@ -309,28 +406,6 @@ func (plugin *JWTPlugin) fetchKeys(issuer string) error {
 	return nil
 }
 
-// canonicalizeRequire converts the require map from a map of stings or lists to a map of lists
-func canonicalizeRequire(require map[string]interface{}) (map[string][]*template.Template, error) {
-	converted := make(map[string][]*template.Template, len(require))
-	for key, value := range require {
-		var templates []*template.Template
-		var err error
-		switch value := value.(type) {
-		case string:
-			templates, err = createTemplates([]interface{}{value})
-		case []interface{}:
-			templates, err = createTemplates(value)
-		default:
-			return nil, fmt.Errorf("invalid type (%s) for required claim: %s", reflect.TypeOf(value), key)
-		}
-		if err != nil {
-			return nil, err
-		}
-		converted[key] = templates
-	}
-	return converted, nil
-}
-
 // canonicalizeDomain adds a trailing slash to the domain
 func canonicalizeDomain(domain string) string {
 	if !strings.HasSuffix(domain, "/") {
@@ -345,20 +420,6 @@ func canonicalizeDomains(domains []string) []string {
 		domains[index] = canonicalizeDomain(domain)
 	}
 	return domains
-}
-
-// createTemplates creates a list of templates from the given  strings
-func createTemplates(texts []interface{}) ([]*template.Template, error) {
-	templates := make([]*template.Template, len(texts))
-	for index, text := range texts {
-		switch text := text.(type) {
-		case string:
-			templates[index] = createTemplate(text)
-		default:
-			return nil, fmt.Errorf("invalid type %s for template", reflect.TypeOf(text))
-		}
-	}
-	return templates, nil
 }
 
 // createTemplate creates a template from the given redirect string, or nil if no specified.
@@ -392,28 +453,14 @@ func (plugin *JWTPlugin) createTemplateVariables(request *http.Request) *Templat
 	return &variables
 }
 
-// expandTemplates expands all templates in the given map.
-func expandTemplates(templates []*template.Template, variables *TemplateVariables) ([]string, error) {
-	// Expand all templates
-	result := make([]string, len(templates))
-	for index, template := range templates {
-		value, err := expandTemplate(template, variables)
-		if err != nil {
-			return nil, err
-		}
-		result[index] = value
-	}
-	return result, nil
-}
-
 // expandTemplate returns the redirect URL from the plugin.redirect template and expands it with the given parameters.
 func expandTemplate(redirectTemplate *template.Template, variables *TemplateVariables) (string, error) {
-	var bytes bytes.Buffer
-	err := redirectTemplate.Execute(&bytes, variables)
+	var buffer bytes.Buffer
+	err := redirectTemplate.Execute(&buffer, variables)
 	if err != nil {
 		return "", err
 	}
-	return bytes.String(), nil
+	return buffer.String(), nil
 
 }
 

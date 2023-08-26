@@ -10,7 +10,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -20,7 +19,6 @@ import (
 
 	"github.com/go-jose/go-jose/v3"
 	"github.com/golang-jwt/jwt/v5"
-	"gopkg.in/yaml.v3"
 )
 
 type Test struct {
@@ -134,6 +132,15 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
+			Name:       "Value requirement fails with invalid type of claim",
+			Expect:     http.StatusForbidden,
+			Secret:     "fixed secret",
+			Method:     jwt.SigningMethodHS256,
+			Require:    `{"aud": 123}`,
+			Claims:     `{"aud": "test"}`,
+			HeaderName: "Authorization",
+		},
+		{
 			Name:       "Fails with missing claim",
 			Expect:     http.StatusForbidden,
 			Secret:     "fixed secret",
@@ -164,7 +171,7 @@ func TestServeHTTP(tester *testing.T) {
 		},
 		{
 			Name:       "Fails with bad template requirement",
-			Expect:     http.StatusInternalServerError,
+			Expect:     http.StatusForbidden, // TODO add check on startup
 			Secret:     "fixed secret",
 			Method:     jwt.SigningMethodHS256,
 			Require:    `{"authority": "{{.XHost}}"}`,
@@ -172,20 +179,20 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:              "Fails with bad require value",
-			ExpectPluginError: "invalid type (float64) for required claim: role",
-			Secret:            "fixed secret",
-			Method:            jwt.SigningMethodHS256,
-			Require:           `{"authority": "{{.Host}}", "role": 9}`,
-			Claims:            `{"authority": "*.example.com"}`,
-			HeaderName:        "Authorization",
-		},
-		{
 			Name:       "Passes with wildcard claim",
 			Expect:     http.StatusOK,
 			Secret:     "fixed secret",
 			Method:     jwt.SigningMethodHS256,
 			Require:    `{"authority": "test.example.com"}`,
+			Claims:     `{"authority": "*.example.com"}`,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:       "Passes with wildcard claim no subdomain",
+			Expect:     http.StatusOK,
+			Secret:     "fixed secret",
+			Method:     jwt.SigningMethodHS256,
+			Require:    `{"authority": "example.com"}`,
 			Claims:     `{"authority": "*.example.com"}`,
 			HeaderName: "Authorization",
 		},
@@ -199,14 +206,102 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:    "Passes with wildcard object claim",
-			Expect:  http.StatusOK,
-			Secret:  "fixed secret",
-			Method:  jwt.SigningMethodHS256,
-			Require: `{"authority": "test.example.com"}`,
+			Name:       "Passes with value claim",
+			Expect:     http.StatusOK,
+			Secret:     "fixed secret",
+			Method:     jwt.SigningMethodHS256,
+			Require:    `{"group": 456}`,
+			Claims:     `{"group": [123, 456]}`,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:       "List passes with wildcard list claim",
+			Expect:     http.StatusOK,
+			Secret:     "fixed secret",
+			Method:     jwt.SigningMethodHS256,
+			Require:    `{"authority": ["test.example.com", "other.other.com"]}`,
+			Claims:     `{"authority": ["*.example.com", "other.example.com"]}`,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:   "Passes with wildcard object and single required and nested",
+			Expect: http.StatusOK,
+			Secret: "fixed secret",
+			Method: jwt.SigningMethodHS256,
+			Require: `{
+				"authority": {
+					"test.example.com": "user"
+				}
+			}`,
+			Claims: `{
+				"authority": {
+					"*.example.com": "user"
+				}
+			}`,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:   "Passes with wildcard object and single requred and multilpe nested",
+			Expect: http.StatusOK,
+			Secret: "fixed secret",
+			Method: jwt.SigningMethodHS256,
+			Require: `{
+				"authority": {
+					"test.example.com": "user"
+				}
+			}`,
 			Claims: `{
 				"authority": {
 					"*.example.com": ["user", "admin"]
+				}
+			}`,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:   "Passes with wildcard object and multiple required and single nested",
+			Expect: http.StatusOK,
+			Secret: "fixed secret",
+			Method: jwt.SigningMethodHS256,
+			Require: `{
+				"authority": {
+					"test.example.com": ["user", "admin"]
+				}
+			}`,
+			Claims: `{
+				"authority": {
+					"*.example.com": "user"
+				}
+			}`,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:   "Passes with wildcard object and irrelevant nested value claim",
+			Expect: http.StatusOK,
+			Secret: "fixed secret",
+			Method: jwt.SigningMethodHS256,
+			Require: `{
+				"authority": "test.example.com"
+			}`,
+			Claims: `{
+				"authority": {
+					"*.example.com": ["user", "admin"]
+				}
+			}`,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:   "Fails with wildcard object bad nested value claim",
+			Expect: http.StatusForbidden,
+			Secret: "fixed secret",
+			Method: jwt.SigningMethodHS256,
+			Require: `{
+				"authority": {
+					"test.example.com": "admin"
+				}
+			}`,
+			Claims: `{
+				"authority": {
+					"*.example.com": ["user", "guest"]
 				}
 			}`,
 			HeaderName: "Authorization",
@@ -520,7 +615,6 @@ func TestServeHTTP(tester *testing.T) {
 			ForwardToken:  false,
 		},
 	}
-	tests = selectTests(tests)
 
 	for _, test := range tests {
 		tester.Run(test.Name, func(tester *testing.T) {
@@ -835,63 +929,6 @@ func TestCanonicalizeDomains(tester *testing.T) {
 	}
 }
 
-func TestCanonicalizeRequire(tester *testing.T) {
-	var bad map[string]interface{}
-	variables := TemplateVariables{
-		URL: "test",
-	}
-
-	texts := []string{
-		`
-first: "one {{.URL}}"
-second:
-  - "two {{.URL}}"
-  - "three {{.URL}}"
-bad: 9
-`,
-		`
-first: "one {{.URL}}"
-second:
-  - 9
-  - 10
-`,
-	}
-	for _, text := range texts {
-		err := yaml.Unmarshal([]byte(text), &bad)
-		if err != nil {
-			tester.Fatal(err)
-		}
-		_, err = canonicalizeRequire(bad)
-		if err == nil {
-			tester.Fatal("expected err")
-		}
-	}
-
-	text := `
-first: "one {{.URL}}"
-second:
-  - "two {{.URL}}"
-  - "three {{.URL}}"
-`
-
-	var good map[string]interface{}
-	err := yaml.Unmarshal([]byte(text), &good)
-	if err != nil {
-		tester.Fatal(err)
-	}
-	result, err := canonicalizeRequire(good)
-	if err != nil {
-		tester.Fatal(err)
-	}
-	value, err := expandTemplate(result["second"][0], &variables)
-	if err != nil {
-		tester.Fatal(err)
-	}
-	if value != "two test" {
-		tester.Errorf("got: %s expected: two test", value)
-	}
-}
-
 // coalesce returns the first non empty string
 func coalesce(values ...string) string {
 	for _, value := range values {
@@ -902,24 +939,7 @@ func coalesce(values ...string) string {
 	return ""
 }
 
-// selectTest finds any tests that have "Isolate" set to true and returns only those, otherwise it returns all tests
-func selectTests(tests []Test) []Test {
-	var normal []Test
-	var isolated []Test
-	for _, test := range tests {
-		if test.Isolate == 1 {
-			isolated = append(isolated, test)
-		} else if test.Isolate == 0 {
-			normal = append(normal, test)
-		}
-	}
-	if len(isolated) > 0 {
-		return isolated
-	}
-	return normal
-}
-
-func BenchmarkServer(benchmark *testing.B) {
+func BenchmarkServeHTTP(benchmark *testing.B) {
 	test := Test{
 		Name:       "SigningMethodRS256 passes",
 		Expect:     http.StatusOK,
@@ -943,9 +963,7 @@ func BenchmarkServer(benchmark *testing.B) {
 
 	// Run one the request first to ensure the key is cached (as our test setup deliberately doens't)
 	plugin.ServeHTTP(response, request)
-
 	benchmark.ResetTimer()
-	log.Println("starting benchmark")
 
 	for count := 0; count < benchmark.N; count++ {
 		// Run the request

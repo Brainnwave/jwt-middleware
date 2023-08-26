@@ -74,6 +74,71 @@ Name | Description
 `{{.Host}}` | Host name only, without scheme, including port if any
 `{{.Path}}` | Path and any query string parameters
 
+
+### Claim Matching
+
+The following config snippet / JWT example pairs illustrate requirements and claims that satisfy them:
+#### Simple
+```yaml
+require:
+  aud: "customer.example.com"
+```
+
+```json
+{
+  "iss": "auth.example.com",
+  "aud": "customer.example.com"
+}
+```
+
+#### Dynamic Requirement
+E.g. for requiring that a token's audience matches the domain being accessed
+
+Will suceed then called on https://customer.example.com/example but fail on https://other.example.com/example
+```yaml
+require:
+  aud: "{{`{{.Host}}`}}"
+```
+
+```json
+{
+  "iss": "auth.example.com",
+  "aud": "customer.example.com"
+}
+```
+
+#### Wildcard Claim
+When called on https://customer.example.com/example..customer.example.com.
+```yaml
+require:
+  aud: "customer.example.com"
+```
+
+```json
+{
+  "iss": "auth.example.com",
+  "aud": "*.example.com"
+}
+```
+Note that the wildcard is granted to the _user_ in their claim, not asked for in the requirements.
+
+#### Custom Nested Claims
+```yaml
+require:
+  authority:
+    app1.example.com: ["admin", "superuser"]
+```
+
+```json
+{
+  "iss": "auth.example.com",
+  "authority": {
+    "app1.example.com": ["user", "admin"],
+    "app2.example.com": ["user"]
+  }
+}
+```
+
 ### Examples
 
 #### Interactive webserver with redirection to login and error pages
@@ -89,26 +154,6 @@ http:
             aud: test.example.com
           redirectUnauthorized: "https://example.com/login?return_to={{`{{.URL}}`}}"
           redirectForbidden: "https://example.com/unauthorized"
-```
-
-#### Requiring that a token's audience matches the domain being accessed
-Example URL: 
-```
-https://client.example.com/api/data/123
-```
-
-Config snippet:
-```yaml
-require:
-  aud: "{{`{{.Host}}`}}"
-```
-
-JWT:
-```json
-{
-  "iss": "auth.example.com",
-  "aud": "client.example.com"
-}
 ```
 
 ## Acknowledgements
