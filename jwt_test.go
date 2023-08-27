@@ -7,8 +7,10 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -55,7 +57,7 @@ type Test struct {
 func TestServeHTTP(tester *testing.T) {
 	tests := []Test{
 		{
-			Name:          "Fails with no token",
+			Name:          "no token",
 			Expect:        http.StatusUnauthorized,
 			Method:        nil,
 			Require:       `{"aud": "test"}`,
@@ -64,7 +66,7 @@ func TestServeHTTP(tester *testing.T) {
 			ParameterName: "token",
 		},
 		{
-			Name:          "Optional passes with no token",
+			Name:          "optional with no token",
 			Expect:        http.StatusOK,
 			Method:        nil,
 			Require:       `{"aud": "test"}`,
@@ -74,7 +76,7 @@ func TestServeHTTP(tester *testing.T) {
 			ParameterName: "token",
 		},
 		{
-			Name:       "Passes with token in cookie",
+			Name:       "token in cookie",
 			Expect:     http.StatusOK,
 			Issuers:    []string{"https://dummy.exmaple.com", "https://exmaple.com"},
 			Secret:     "fixed secret",
@@ -84,7 +86,7 @@ func TestServeHTTP(tester *testing.T) {
 			CookieName: "Authorization",
 		},
 		{
-			Name:                 "Passes with token in header",
+			Name:                 "token in header",
 			Expect:               http.StatusOK,
 			Secret:               "fixed secret",
 			Method:               jwt.SigningMethodHS256,
@@ -95,7 +97,7 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName:           "Authorization",
 		},
 		{
-			Name:         "Passes with token in header with Bearer prefix",
+			Name:         "token in header with Bearer prefix",
 			Expect:       http.StatusOK,
 			Secret:       "fixed secret",
 			Method:       jwt.SigningMethodHS256,
@@ -105,7 +107,7 @@ func TestServeHTTP(tester *testing.T) {
 			BearerPrefix: true,
 		},
 		{
-			Name:          "Passes with token in query string",
+			Name:          "token in query string",
 			Expect:        http.StatusOK,
 			Secret:        "fixed secret",
 			Method:        jwt.SigningMethodHS256,
@@ -114,7 +116,7 @@ func TestServeHTTP(tester *testing.T) {
 			ParameterName: "token",
 		},
 		{
-			Name:       "Fails with expired token",
+			Name:       "expired token",
 			Expect:     http.StatusUnauthorized,
 			Secret:     "fixed secret",
 			Method:     jwt.SigningMethodHS256,
@@ -123,7 +125,7 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "Fails with invalid claim",
+			Name:       "invalid claim",
 			Expect:     http.StatusForbidden,
 			Secret:     "fixed secret",
 			Method:     jwt.SigningMethodHS256,
@@ -132,7 +134,7 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "Value requirement fails with invalid type of claim",
+			Name:       "value requirement with invalid type of claim",
 			Expect:     http.StatusForbidden,
 			Secret:     "fixed secret",
 			Method:     jwt.SigningMethodHS256,
@@ -141,7 +143,7 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "Fails with missing claim",
+			Name:       "missing claim",
 			Expect:     http.StatusForbidden,
 			Secret:     "fixed secret",
 			Method:     jwt.SigningMethodHS256,
@@ -161,7 +163,7 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "Passes with template requirement",
+			Name:       "template requirement",
 			Expect:     http.StatusOK,
 			Secret:     "fixed secret",
 			Method:     jwt.SigningMethodHS256,
@@ -170,7 +172,7 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "Fails with bad template requirement",
+			Name:       "bad template requirement",
 			Expect:     http.StatusForbidden, // TODO add check on startup
 			Secret:     "fixed secret",
 			Method:     jwt.SigningMethodHS256,
@@ -179,7 +181,7 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "Passes with wildcard claim",
+			Name:       "wildcard claim",
 			Expect:     http.StatusOK,
 			Secret:     "fixed secret",
 			Method:     jwt.SigningMethodHS256,
@@ -188,7 +190,7 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "Passes with wildcard claim no subdomain",
+			Name:       "wildcard claim no subdomain",
 			Expect:     http.StatusOK,
 			Secret:     "fixed secret",
 			Method:     jwt.SigningMethodHS256,
@@ -197,7 +199,7 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "Passes with wildcard list claim",
+			Name:       "wildcard list claim",
 			Expect:     http.StatusOK,
 			Secret:     "fixed secret",
 			Method:     jwt.SigningMethodHS256,
@@ -206,7 +208,7 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "Passes with value claim",
+			Name:       "integer claim",
 			Expect:     http.StatusOK,
 			Secret:     "fixed secret",
 			Method:     jwt.SigningMethodHS256,
@@ -215,7 +217,7 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "List passes with wildcard list claim",
+			Name:       "list with wildcard list claim",
 			Expect:     http.StatusOK,
 			Secret:     "fixed secret",
 			Method:     jwt.SigningMethodHS256,
@@ -224,7 +226,7 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:   "Passes with wildcard object and single required and nested",
+			Name:   "wildcard object and single required and nested",
 			Expect: http.StatusOK,
 			Secret: "fixed secret",
 			Method: jwt.SigningMethodHS256,
@@ -241,7 +243,7 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:   "Passes with wildcard object and single requred and multilpe nested",
+			Name:   "wildcard object and single requred and multilpe nested",
 			Expect: http.StatusOK,
 			Secret: "fixed secret",
 			Method: jwt.SigningMethodHS256,
@@ -258,7 +260,7 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:   "Passes with wildcard object and multiple required and single nested",
+			Name:   "wildcard object and multiple required and single nested",
 			Expect: http.StatusOK,
 			Secret: "fixed secret",
 			Method: jwt.SigningMethodHS256,
@@ -275,7 +277,7 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:   "Passes with wildcard object and irrelevant nested value claim",
+			Name:   "wildcard object and irrelevant nested value claim",
 			Expect: http.StatusOK,
 			Secret: "fixed secret",
 			Method: jwt.SigningMethodHS256,
@@ -290,7 +292,7 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:   "Fails with wildcard object bad nested value claim",
+			Name:   "wildcard object bad nested value claim",
 			Expect: http.StatusForbidden,
 			Secret: "fixed secret",
 			Method: jwt.SigningMethodHS256,
@@ -307,7 +309,7 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "Fails with bad wildcard claim",
+			Name:       "bad wildcard claim",
 			Expect:     http.StatusForbidden,
 			Secret:     "fixed secret",
 			Method:     jwt.SigningMethodHS256,
@@ -316,7 +318,7 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "Fails with bad wildcard list claim",
+			Name:       "bad wildcard list claim",
 			Expect:     http.StatusForbidden,
 			Secret:     "fixed secret",
 			Method:     jwt.SigningMethodHS256,
@@ -325,7 +327,7 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:    "Fails with bad wildcard object claim",
+			Name:    "bad wildcard object claim",
 			Expect:  http.StatusForbidden,
 			Secret:  "fixed secret",
 			Method:  jwt.SigningMethodHS256,
@@ -338,7 +340,7 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "SigningMethodHS256 passes",
+			Name:       "SigningMethodHS256",
 			Expect:     http.StatusOK,
 			Secret:     "fixed secret",
 			Method:     jwt.SigningMethodHS256,
@@ -347,7 +349,7 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "SigningMethodRS256 passes",
+			Name:       "SigningMethodRS256",
 			Expect:     http.StatusOK,
 			Method:     jwt.SigningMethodRS256,
 			Require:    `{"aud": "test"}`,
@@ -355,7 +357,7 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "SigningMethodRS512 passes",
+			Name:       "SigningMethodRS512",
 			Expect:     http.StatusOK,
 			Method:     jwt.SigningMethodRS512,
 			Require:    `{"aud": "test"}`,
@@ -363,7 +365,7 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "SigningMethodES256 passes",
+			Name:       "SigningMethodES256",
 			Expect:     http.StatusOK,
 			Method:     jwt.SigningMethodES256,
 			Require:    `{"aud": "test"}`,
@@ -371,7 +373,7 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "SigningMethodES384 passes",
+			Name:       "SigningMethodES384",
 			Expect:     http.StatusOK,
 			Method:     jwt.SigningMethodES384,
 			Require:    `{"aud": "test"}`,
@@ -379,7 +381,7 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "SigningMethodES512 passes",
+			Name:       "SigningMethodES512",
 			Expect:     http.StatusOK,
 			Method:     jwt.SigningMethodES512,
 			Require:    `{"aud": "test"}`,
@@ -441,7 +443,7 @@ func TestServeHTTP(tester *testing.T) {
 			Actions:    map[string]string{"set:y": "dummy"},
 		},
 		{
-			Name:       "SigningMethodES256 passes with missing crv",
+			Name:       "SigningMethodES256 with missing crv",
 			Expect:     http.StatusOK,
 			Method:     jwt.SigningMethodES256,
 			Require:    `{"aud": "test"}`,
@@ -450,7 +452,7 @@ func TestServeHTTP(tester *testing.T) {
 			Actions:    map[string]string{"set:crv": "dummy"},
 		},
 		{
-			Name:       "SigningMethodES256 passes with missing crv and alg",
+			Name:       "SigningMethodES256 with missing crv and alg",
 			Expect:     http.StatusOK,
 			Method:     jwt.SigningMethodES256,
 			Require:    `{"aud": "test"}`,
@@ -459,7 +461,7 @@ func TestServeHTTP(tester *testing.T) {
 			Actions:    map[string]string{"set:crv": "dummy", "set:alg": "dummy"},
 		},
 		{
-			Name:       "SigningMethodES384 passes passes with missing crv",
+			Name:       "SigningMethodES384 with missing crv",
 			Expect:     http.StatusOK,
 			Method:     jwt.SigningMethodES384,
 			Require:    `{"aud": "test"}`,
@@ -468,7 +470,7 @@ func TestServeHTTP(tester *testing.T) {
 			Actions:    map[string]string{"set:crv": "dummy"},
 		},
 		{
-			Name:       "SigningMethodES512 passes passes with missing crv",
+			Name:       "SigningMethodES512 with missing crv",
 			Expect:     http.StatusOK,
 			Method:     jwt.SigningMethodES512,
 			Require:    `{"aud": "test"}`,
@@ -477,7 +479,25 @@ func TestServeHTTP(tester *testing.T) {
 			Actions:    map[string]string{"set:crv": "dummy"},
 		},
 		{
-			Name:       "Fails with unknown issuer",
+			Name:       "SigningMethodRS512 in fixed secret",
+			Expect:     http.StatusOK,
+			Method:     jwt.SigningMethodRS512,
+			Require:    `{"aud": "test"}`,
+			Claims:     `{"aud": "test"}`,
+			HeaderName: "Authorization",
+			Actions:    map[string]string{"useFixedSecret": "yes", "noAddIsser": "yes"},
+		},
+		{
+			Name:              "bad fixed secret",
+			ExpectPluginError: "invalid key: Key must be a PEM encoded PKCS1 or PKCS8 key",
+			Secret:            "-----BEGIN RSA PUBLIC KEY",
+			Method:            jwt.SigningMethodRS512,
+			Require:           `{"aud": "test"}`,
+			Claims:            `{"aud": "test"}`,
+			CookieName:        "Authorization",
+		},
+		{
+			Name:       "unknown issuer",
 			Expect:     http.StatusUnauthorized,
 			Method:     jwt.SigningMethodRS256,
 			Require:    `{"aud": "test"}`,
@@ -485,7 +505,7 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "Fails with no issuer",
+			Name:       "no issuer",
 			Expect:     http.StatusUnauthorized,
 			Method:     jwt.SigningMethodRS256,
 			Require:    `{"aud": "test"}`,
@@ -494,7 +514,7 @@ func TestServeHTTP(tester *testing.T) {
 			Actions:    map[string]string{"excludeIss": "yes"},
 		},
 		{
-			Name:       "Wildcard isser",
+			Name:       "wildcard isser",
 			Expect:     http.StatusOK,
 			Issuers:    []string{"http://127.0.0.1:*/"},
 			Method:     jwt.SigningMethodES256,
@@ -504,7 +524,7 @@ func TestServeHTTP(tester *testing.T) {
 			Actions:    map[string]string{"noAddIsser": "yes"},
 		},
 		{
-			Name:       "Bad wildcard isser",
+			Name:       "bad wildcard isser",
 			Expect:     http.StatusUnauthorized,
 			Issuers:    []string{"http://example.com:*/"},
 			Method:     jwt.SigningMethodES256,
@@ -514,7 +534,7 @@ func TestServeHTTP(tester *testing.T) {
 			Actions:    map[string]string{"noAddIsser": "yes"},
 		},
 		{
-			Name:       "Key rotation",
+			Name:       "key rotation",
 			Expect:     http.StatusOK,
 			Method:     jwt.SigningMethodRS256,
 			Require:    `{"aud": "test"}`,
@@ -523,7 +543,7 @@ func TestServeHTTP(tester *testing.T) {
 			Actions:    map[string]string{"rotateKey": "yes"},
 		},
 		{
-			Name:       "Server internal error",
+			Name:       "server internal error",
 			Expect:     http.StatusUnauthorized,
 			Method:     jwt.SigningMethodES256,
 			Require:    `{"aud": "test"}`,
@@ -532,7 +552,7 @@ func TestServeHTTP(tester *testing.T) {
 			Actions:    map[string]string{"serverStatus": "500"},
 		},
 		{
-			Name:       "Invalid JSON",
+			Name:       "invalid json",
 			Expect:     http.StatusUnauthorized,
 			Method:     jwt.SigningMethodES256,
 			Require:    `{"aud": "test"}`,
@@ -541,7 +561,7 @@ func TestServeHTTP(tester *testing.T) {
 			Actions:    map[string]string{"invalidJSON": "invalid"},
 		},
 		{
-			Name:                 "Redirect with expired token",
+			Name:                 "redirect with expired token",
 			Expect:               http.StatusFound,
 			ExpectRedirect:       "https://example.com/login?return_to=https://app.example.com/home?id=1",
 			Secret:               "fixed secret",
@@ -553,7 +573,7 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName:           "Authorization",
 		},
 		{
-			Name:                 "Redirect with expired token and traefik-style URL",
+			Name:                 "redirect with expired token and traefik-style URL",
 			Expect:               http.StatusFound,
 			ExpectRedirect:       "https://example.com/login?return_to=https://app.example.com/home?id=1",
 			Secret:               "fixed secret",
@@ -566,7 +586,7 @@ func TestServeHTTP(tester *testing.T) {
 			Actions:              map[string]string{"traefikURL": "invalid"},
 		},
 		{
-			Name:                 "Redirect with missing claim",
+			Name:                 "redirect with missing claim",
 			Expect:               http.StatusFound,
 			ExpectRedirect:       "https://example.com/unauthorized?return_to=https://app.example.com/home?id=1",
 			Secret:               "fixed secret",
@@ -578,7 +598,7 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName:           "Authorization",
 		},
 		{
-			Name:                 "Redirect with bad interpolation",
+			Name:                 "redirect with bad interpolation",
 			Expect:               http.StatusInternalServerError,
 			ExpectRedirect:       "https://example.com/unauthorized?return_to=https://app.example.com/home?id=1",
 			Secret:               "fixed secret",
@@ -590,7 +610,7 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName:           "Authorization",
 		},
 		{
-			Name:          "Map headers",
+			Name:          "map headers",
 			Expect:        http.StatusOK,
 			ExpectHeaders: map[string]string{"X-Id": "1234"},
 			Issuers:       []string{"https://dummy.exmaple.com", "https://exmaple.com"},
@@ -602,7 +622,7 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName:    "Authorization",
 		},
 		{
-			Name:          "Pass on cookies",
+			Name:          "cookies",
 			Expect:        http.StatusOK,
 			ExpectCookies: map[string]string{"Test": "test", "Other": "other"},
 			Issuers:       []string{"https://dummy.exmaple.com", "https://exmaple.com"},
@@ -681,6 +701,28 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 		}
 	}
 
+	// Set up test record
+	if test.ClaimsMap == nil {
+		if test.Claims == "" {
+			test.Claims = "{}"
+		}
+		err := json.Unmarshal([]byte(test.Claims), &test.ClaimsMap)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+	}
+
+	context := context.Background()
+
+	request, err := http.NewRequestWithContext(context, http.MethodGet, "https://app.example.com/home?id=1", nil)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	if test.Actions["useFixedSecret"] == "yes" {
+		addTokenToRequest(test, request)
+	}
+
 	defaults := CreateConfig()
 	config := Config{
 		ValidMethods:         defaults.ValidMethods,
@@ -727,23 +769,11 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 		config.Issuers = append(config.Issuers, server.URL)
 	}
 
-	// Set up test record
-	if test.ClaimsMap == nil {
-		if test.Claims == "" {
-			test.Claims = "{}"
-		}
-		err := json.Unmarshal([]byte(test.Claims), &test.ClaimsMap)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-	}
-
 	if test.Issuer != "" && test.ClaimsMap["iss"] == nil && test.Actions["excludeIss"] == "" {
 		test.ClaimsMap["iss"] = test.Issuer
 	}
 
 	// Create the plugin
-	context := context.Background()
 	next := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) { test.Result = true })
 	plugin, err := New(context, next, &config, "test-jwt-middleware")
 	if err != nil {
@@ -753,19 +783,16 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 		return nil, nil, nil, err
 	}
 
-	request, err := http.NewRequestWithContext(context, http.MethodGet, "https://app.example.com/home?id=1", nil)
-	if err != nil {
-		return nil, nil, nil, err
-	}
+	if test.Actions["useFixedSecret"] != "yes" {
+		if _, ok := test.Actions["rotateKey"]; ok {
+			// Similate a key rotation by ...
+			addTokenToRequest(test, request)                  // adding a new key to the server ...
+			plugin.ServeHTTP(httptest.NewRecorder(), request) // causing the plugin to fetch it and then ...
+			test.Keys.Keys = nil                              // removing it from the server
+		}
 
-	if _, ok := test.Actions["rotateKey"]; ok {
-		// Similate a key rotation by ...
-		addTokenToRequest(test, request)                  // adding a new key to the server ...
-		plugin.ServeHTTP(httptest.NewRecorder(), request) // causing the plugin to fetch it and then ...
-		test.Keys.Keys = nil                              // removing it from the server
+		addTokenToRequest(test, request)
 	}
-
-	addTokenToRequest(test, request)
 	return plugin, request, server, nil
 }
 
@@ -833,46 +860,35 @@ func createTokenAndSaveKey(test *Test) string {
 	token := jwt.NewWithClaims(method, test.ClaimsMap)
 	var private interface{}
 	var public interface{}
+	var publicPEM string
 	switch method {
 	case jwt.SigningMethodHS256:
 		if test.Secret == "" {
 			panic(fmt.Errorf("secret is required for %s", method.Alg()))
 		}
-		signed, err := token.SignedString([]byte(test.Secret))
-		if err != nil {
-			panic(err)
-		}
-		return signed
-	case jwt.SigningMethodRS256:
+		private = []byte(test.Secret)
+	case jwt.SigningMethodRS256, jwt.SigningMethodRS512:
 		secret, err := rsa.GenerateKey(rand.Reader, 2048)
 		if err != nil {
 			panic(err)
 		}
 		private = secret
 		public = &secret.PublicKey
-	case jwt.SigningMethodRS512:
-		secret, err := rsa.GenerateKey(rand.Reader, 2048)
-		if err != nil {
-			panic(err)
+		publicPEM = string(pem.EncodeToMemory(&pem.Block{
+			Type:  "RSA PUBLIC KEY",
+			Bytes: x509.MarshalPKCS1PublicKey(&secret.PublicKey),
+		}))
+	case jwt.SigningMethodES256, jwt.SigningMethodES384, jwt.SigningMethodES512:
+		var curve elliptic.Curve
+		switch method {
+		case jwt.SigningMethodES256:
+			curve = elliptic.P256()
+		case jwt.SigningMethodES384:
+			curve = elliptic.P384()
+		case jwt.SigningMethodES512:
+			curve = elliptic.P521()
 		}
-		private = secret
-		public = &secret.PublicKey
-	case jwt.SigningMethodES256:
-		secret, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-		if err != nil {
-			panic(err)
-		}
-		private = secret
-		public = &secret.PublicKey
-	case jwt.SigningMethodES384:
-		secret, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
-		if err != nil {
-			panic(err)
-		}
-		private = secret
-		public = &secret.PublicKey
-	case jwt.SigningMethodES512:
-		secret, err := ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
+		secret, err := ecdsa.GenerateKey(curve, rand.Reader)
 		if err != nil {
 			panic(err)
 		}
@@ -882,9 +898,13 @@ func createTokenAndSaveKey(test *Test) string {
 		panic("Unsupported signing method")
 	}
 
-	jwk, kid := convertKeyToJWKWithKID(public, method.Alg())
-	test.Keys.Keys = append(test.Keys.Keys, jwk)
-	token.Header["kid"] = kid
+	if test.Actions["useFixedSecret"] == "yes" {
+		test.Secret = publicPEM
+	} else if method != jwt.SigningMethodHS256 {
+		jwk, kid := convertKeyToJWKWithKID(public, method.Alg())
+		test.Keys.Keys = append(test.Keys.Keys, jwk)
+		token.Header["kid"] = kid
+	}
 	signed, err := token.SignedString(private)
 	if err != nil {
 		panic(err)

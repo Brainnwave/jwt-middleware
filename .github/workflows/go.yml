@@ -25,5 +25,27 @@ jobs:
       run: |
         go get .
         go mod vendor
+
     - name: Test
-      run: go test -v -cover
+      run: go test -v -coverprofile=coverage.out
+
+    - name: Badge
+      run: |
+        total=`go tool cover -func=coverage.out | grep total | grep -Eo '[0-9]+\.[0-9]+'`
+        if (( $(echo "$total <= 50" | bc -l) )) ; then
+          COLOR=red
+        elif (( $(echo "$total > 80" | bc -l) )); then
+          COLOR=green
+        else
+          COLOR=orange
+        fi
+        curl "https://img.shields.io/badge/Coverage-$total%25-$COLOR" > badge.svg
+
+    - name: Copy
+      uses: prewk/s3-cp-action@v2
+      with:
+        aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        source: './badge.svg'
+        dest: 's3://brainnwave.assets/badges/jwt/coverage.svg'
+        flags: --acl public-read 

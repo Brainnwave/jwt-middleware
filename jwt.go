@@ -38,7 +38,7 @@ type JWTPlugin struct {
 	next                 http.Handler
 	name                 string
 	parser               *jwt.Parser
-	secret               string
+	secret               interface{}
 	issuers              []string
 	require              map[string][]Requirement
 	lock                 sync.RWMutex
@@ -91,15 +91,35 @@ func CreateConfig() *Config {
 	}
 }
 
+func SetupSecret(secret string) (interface{}, error) {
+	// If secret is empty, we don't have a fixed secret
+	if secret == "" {
+		return nil, nil
+	}
+
+	// If plugin.secret is a PEM-encoded public key, return the public key
+	if strings.HasPrefix(secret, "-----BEGIN RSA PUBLIC KEY") {
+		return jwt.ParseRSAPublicKeyFromPEM([]byte(secret))
+	}
+
+	// Otherwise, we assume it's a shared HMAC secret
+	return []byte(secret), nil
+}
+
 // New creates a new JWTPlugin.
 func New(_ context.Context, next http.Handler, config *Config, name string) (http.Handler, error) {
 	log.SetFlags(0)
+
+	secret, err := SetupSecret(config.Secret)
+	if err != nil {
+		return nil, err
+	}
 
 	plugin := JWTPlugin{
 		next:                 next,
 		name:                 name,
 		parser:               jwt.NewParser(jwt.WithValidMethods(config.ValidMethods)),
-		secret:               config.Secret,
+		secret:               secret,
 		issuers:              canonicalizeDomains(config.Issuers),
 		require:              convertRequire(config.Require),
 		keys:                 make(map[string]interface{}),
@@ -365,11 +385,11 @@ func (plugin *JWTPlugin) GetKey(token *jwt.Token) (interface{}, error) {
 	}
 
 	// We fall back to any fixed secret
-	if plugin.secret == "" {
+	if plugin.secret == nil {
 		return nil, fmt.Errorf("no secret configured")
 	}
 
-	return []byte(plugin.secret), nil
+	return plugin.secret, nil
 }
 
 // IsValidIssuer returns true if the issuer is allowed by the Issers configuration.
