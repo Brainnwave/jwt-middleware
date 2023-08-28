@@ -157,6 +157,21 @@ http:
           redirectForbidden: "https://example.com/unauthorized"
 ```
 
+#### Specifying a fixed ECDSA public key
+```yaml
+http:
+  middlewares:
+    secure-interactive:
+      plugin:
+        jwt:
+          secret: |
+            -----BEGIN PUBLIC KEY-----
+            MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEmHp6e95bmF2NqgziUMZP/+x8r2dH
+            m/UisMRtEhOY6vE92LCdFpyqtwYwPVryYexT0ITtQldD5O091QcuIOm6KQ==
+            -----END PUBLIC KEY-----
+          require:
+            aud: test.example.com
+```
 ## Acknowledgements
 
 Inspired by code from https://github.com/legege/jwt-validation-middleware, https://github.com/23deg/jwt-middleware and https://github.com/team-carepay/traefik-jwt-plugin

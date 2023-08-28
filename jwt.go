@@ -102,6 +102,10 @@ func SetupSecret(secret string) (interface{}, error) {
 		return jwt.ParseRSAPublicKeyFromPEM([]byte(secret))
 	}
 
+	if strings.HasPrefix(secret, "-----BEGIN EC PUBLIC KEY") || strings.HasPrefix(secret, "-----BEGIN PUBLIC KEY") {
+		return jwt.ParseECPublicKeyFromPEM([]byte(secret))
+	}
+
 	// Otherwise, we assume it's a shared HMAC secret
 	return []byte(secret), nil
 }

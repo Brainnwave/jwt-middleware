@@ -479,9 +479,45 @@ func TestServeHTTP(tester *testing.T) {
 			Actions:    map[string]string{"set:crv": "dummy"},
 		},
 		{
+			Name:       "SigningMethodRS256 in fixed secret",
+			Expect:     http.StatusOK,
+			Method:     jwt.SigningMethodRS256,
+			Require:    `{"aud": "test"}`,
+			Claims:     `{"aud": "test"}`,
+			HeaderName: "Authorization",
+			Actions:    map[string]string{"useFixedSecret": "yes", "noAddIsser": "yes"},
+		},
+		{
 			Name:       "SigningMethodRS512 in fixed secret",
 			Expect:     http.StatusOK,
 			Method:     jwt.SigningMethodRS512,
+			Require:    `{"aud": "test"}`,
+			Claims:     `{"aud": "test"}`,
+			HeaderName: "Authorization",
+			Actions:    map[string]string{"useFixedSecret": "yes", "noAddIsser": "yes"},
+		},
+		{
+			Name:       "SigningMethodES256 in fixed secret",
+			Expect:     http.StatusOK,
+			Method:     jwt.SigningMethodES256,
+			Require:    `{"aud": "test"}`,
+			Claims:     `{"aud": "test"}`,
+			HeaderName: "Authorization",
+			Actions:    map[string]string{"useFixedSecret": "yes", "noAddIsser": "yes"},
+		},
+		{
+			Name:       "SigningMethodES384 in fixed secret",
+			Expect:     http.StatusOK,
+			Method:     jwt.SigningMethodES384,
+			Require:    `{"aud": "test"}`,
+			Claims:     `{"aud": "test"}`,
+			HeaderName: "Authorization",
+			Actions:    map[string]string{"useFixedSecret": "yes", "noAddIsser": "yes"},
+		},
+		{
+			Name:       "SigningMethodES512 in fixed secret",
+			Expect:     http.StatusOK,
+			Method:     jwt.SigningMethodES512,
 			Require:    `{"aud": "test"}`,
 			Claims:     `{"aud": "test"}`,
 			HeaderName: "Authorization",
@@ -894,6 +930,14 @@ func createTokenAndSaveKey(test *Test) string {
 		}
 		private = secret
 		public = &secret.PublicKey
+		der, err := x509.MarshalPKIXPublicKey(&secret.PublicKey)
+		if err != nil {
+			panic(err)
+		}
+		publicPEM = string(pem.EncodeToMemory(&pem.Block{
+			Type:  "PUBLIC KEY",
+			Bytes: der,
+		}))
 	default:
 		panic("Unsupported signing method")
 	}
