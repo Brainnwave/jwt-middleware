@@ -1,4 +1,4 @@
-[![Go](https://github.com/Brainnwave/jwt-middleware/actions/workflows/go.yml/badge.svg)](https://github.com/Brainnwave/jwt-middleware/actions/workflows/go.yml)
+[![Go](https://brainnwave.com/badges/jwt-middleware/status.svg)](https://github.com/Brainnwave/jwt-middleware/actions/workflows/go.yml)
 [![Coverage](https://s3.amazonaws.com/brainnwave.assets/badges/jwt/coverage.svg)](https://github.com/Brainnwave/jwt-middleware/actions/workflows/go.yml)
 
 # Dynamic JWT Validation Middleware
