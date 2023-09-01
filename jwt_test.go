@@ -21,654 +21,759 @@ import (
 
 	"github.com/go-jose/go-jose/v3"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/mitchellh/mapstructure"
+	"gopkg.in/yaml.v3"
 )
 
 type Test struct {
-	Isolate              int
-	Name                 string
-	Result               bool
-	Expect               int
-	ExpectPluginError    string
-	ExpectRedirect       string
-	ExpectHeaders        map[string]string
-	ExpectCookies        map[string]string
-	Issuer               string   // Issuer is the issuer to use for the token's iss claim
-	Issuers              []string // Issuers is for the Plugin to prefetch / allow
-	Keys                 jose.JSONWebKeySet
-	Secret               string
-	Method               jwt.SigningMethod
-	Require              string
-	RequireMap           map[string]interface{}
-	Optional             bool
-	RedirectUnauthorized string
-	RedirectForbidden    string
-	CookieName           string
-	HeaderName           string
-	ParameterName        string
-	BearerPrefix         bool
-	HeaderMap            map[string]string
-	Cookies              map[string]string
-	ForwardToken         bool
-	Claims               string
-	ClaimsMap            jwt.MapClaims
-	Actions              map[string]string
+	Name              string
+	Result            bool
+	Expect            int
+	ExpectPluginError string
+	ExpectRedirect    string
+	ExpectHeaders     map[string]string
+	ExpectCookies     map[string]string
+	Config            string
+	Keys              jose.JSONWebKeySet
+	Method            jwt.SigningMethod
+	CookieName        string
+	HeaderName        string
+	ParameterName     string
+	BearerPrefix      bool
+	HeaderMap         map[string]string
+	Cookies           map[string]string
+	Claims            string
+	ClaimsMap         jwt.MapClaims
+	Actions           map[string]string
 }
 
 func TestServeHTTP(tester *testing.T) {
 	tests := []Test{
 		{
-			Name:          "no token",
-			Expect:        http.StatusUnauthorized,
-			Method:        nil,
-			Require:       `{"aud": "test"}`,
-			CookieName:    "Authorization",
-			HeaderName:    "Authorization",
-			ParameterName: "token",
+			Name:   "no token",
+			Expect: http.StatusUnauthorized,
+			Config: `
+				issuers: https://example.com
+				require:
+					aud: test
+				parameterName: token`,
 		},
 		{
-			Name:          "optional with no token",
-			Expect:        http.StatusOK,
-			Method:        nil,
-			Require:       `{"aud": "test"}`,
-			Optional:      true,
-			CookieName:    "Authorization",
-			HeaderName:    "Authorization",
-			ParameterName: "token",
+			Name:   "optional with no token",
+			Expect: http.StatusOK,
+			Config: `
+				issuers: https://example.com
+				require:
+					aud: test
+				optional: true
+				parameterName: token`,
 		},
 		{
-			Name:       "token in cookie",
-			Expect:     http.StatusOK,
-			Issuers:    []string{"https://dummy.exmaple.com", "https://exmaple.com"},
-			Secret:     "fixed secret",
-			Method:     jwt.SigningMethodHS256,
-			Require:    `{"aud": "test"}`,
+			Name:   "token in cookie",
+			Expect: http.StatusOK,
+			Config: `
+				issuers:
+					- https://dummy.example.com
+					- https://example.com
+				secret: fixed secret
+				require:
+					aud: test`,
 			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodHS256,
 			CookieName: "Authorization",
 		},
 		{
-			Name:                 "token in header",
-			Expect:               http.StatusOK,
-			Secret:               "fixed secret",
-			Method:               jwt.SigningMethodHS256,
-			RedirectUnauthorized: "https://example.com/login?return_to={{.URL}}",
-			RedirectForbidden:    "https://example.com/unauthorized?return_to={{.URL}}",
-			Require:              `{"aud": "test"}`,
-			Claims:               `{"aud": "test"}`,
-			HeaderName:           "Authorization",
+			Name:   "token in header",
+			Expect: http.StatusOK,
+			Config: `
+				secret: fixed secret
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
 		},
 		{
-			Name:         "token in header with Bearer prefix",
-			Expect:       http.StatusOK,
-			Secret:       "fixed secret",
-			Method:       jwt.SigningMethodHS256,
-			Require:      `{"aud": "test"}`,
+			Name:   "token in header with Bearer prefix",
+			Expect: http.StatusOK,
+			Config: `
+					secret: fixed secret
+					require:
+						aud: test`,
 			Claims:       `{"aud": "test"}`,
+			Method:       jwt.SigningMethodHS256,
 			HeaderName:   "Authorization",
 			BearerPrefix: true,
 		},
+
 		{
-			Name:          "token in query string",
-			Expect:        http.StatusOK,
-			Secret:        "fixed secret",
-			Method:        jwt.SigningMethodHS256,
-			Require:       `{"aud": "test"}`,
+			Name:   "token in query string",
+			Expect: http.StatusOK,
+			Config: `
+					secret: fixed secret
+					require:
+						aud: test
+					parameterName: "token"
+					forwardToken: false`,
 			Claims:        `{"aud": "test"}`,
+			Method:        jwt.SigningMethodHS256,
 			ParameterName: "token",
 		},
+
 		{
-			Name:       "expired token",
-			Expect:     http.StatusUnauthorized,
-			Secret:     "fixed secret",
-			Method:     jwt.SigningMethodHS256,
-			Require:    `{"aud": "test"}`,
+			Name:   "expired token",
+			Expect: http.StatusUnauthorized,
+			Config: `
+				secret: fixed secret
+				require:
+					aud: test`,
 			Claims:     `{"aud": "test", "exp": 1692043084}`,
+			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "invalid claim",
-			Expect:     http.StatusForbidden,
-			Secret:     "fixed secret",
-			Method:     jwt.SigningMethodHS256,
-			Require:    `{"aud": "test"}`,
+			Name:   "invalid claim",
+			Expect: http.StatusForbidden,
+			Config: `
+				secret: fixed secret
+				require:
+					aud: test`,
 			Claims:     `{"aud": "other"}`,
+			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "value requirement with invalid type of claim",
-			Expect:     http.StatusForbidden,
-			Secret:     "fixed secret",
-			Method:     jwt.SigningMethodHS256,
-			Require:    `{"aud": 123}`,
+			Name:   "value requirement with invalid type of claim",
+			Expect: http.StatusForbidden,
+			Config: `
+				secret: fixed secret
+				require:
+					aud: 123`,
 			Claims:     `{"aud": "test"}`,
-			HeaderName: "Authorization",
-		},
-		{
-			Name:       "missing claim",
-			Expect:     http.StatusForbidden,
-			Secret:     "fixed secret",
 			Method:     jwt.SigningMethodHS256,
-			Require:    `{"aud": "test"}`,
 			HeaderName: "Authorization",
 		},
 		{
-			Name:    "StatusUnauthorized when within window of freshness",
-			Expect:  http.StatusUnauthorized,
-			Secret:  "fixed secret",
-			Method:  jwt.SigningMethodHS256,
-			Require: `{"aud": "test"}`,
-			ClaimsMap: jwt.MapClaims{
-				"aud": "other",
-				"iat": 1692451139, //time.Now().Unix(),
-			},
-			HeaderName: "Authorization",
-		},
-		{
-			Name:       "template requirement",
-			Expect:     http.StatusOK,
-			Secret:     "fixed secret",
+			Name:   "missing claim",
+			Expect: http.StatusForbidden,
+			Config: `
+				secret: fixed secret
+				require:
+					aud: test`,
 			Method:     jwt.SigningMethodHS256,
-			Require:    `{"authority": "{{.Host}}"}`,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:   "StatusUnauthorized when within window of freshness",
+			Expect: http.StatusUnauthorized,
+			Config: `
+				secret: fixed secret
+				require:
+					aud: test`,
+			Claims:     `{"aud": "other", "iat": 1692451139}`,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:   "template requirement",
+			Expect: http.StatusOK,
+			Config: `
+				secret: fixed secret
+				require:
+					authority: "{{.Host}}"`,
+			Claims:     `{"authority": "app.example.com"}`,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:   "template requirement wth wildcard claim",
+			Expect: http.StatusOK,
+			Config: `
+				secret: fixed secret
+				require:
+					authority: "{{.Host}}"`,
 			Claims:     `{"authority": "*.example.com"}`,
+			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "bad template requirement",
-			Expect:     http.StatusForbidden, // TODO add check on startup
-			Secret:     "fixed secret",
-			Method:     jwt.SigningMethodHS256,
-			Require:    `{"authority": "{{.XHost}}"}`,
+			Name:   "bad template requirement",
+			Expect: http.StatusForbidden, // TODO add check on startup
+			Config: `
+				secret: fixed secret
+				require:
+					authority: "{{.XHost}}"`,
 			Claims:     `{"authority": "*.example.com"}`,
+			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "wildcard claim",
-			Expect:     http.StatusOK,
-			Secret:     "fixed secret",
-			Method:     jwt.SigningMethodHS256,
-			Require:    `{"authority": "test.example.com"}`,
+			Name:   "wildcard claim",
+			Expect: http.StatusOK,
+			Config: `
+				secret: fixed secret
+				require:
+					authority: test.example.com`,
 			Claims:     `{"authority": "*.example.com"}`,
+			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "wildcard claim no subdomain",
-			Expect:     http.StatusOK,
-			Secret:     "fixed secret",
-			Method:     jwt.SigningMethodHS256,
-			Require:    `{"authority": "example.com"}`,
+			Name:   "wildcard claim no subdomain",
+			Expect: http.StatusOK,
+			Config: `
+				secret: fixed secret
+				require:
+					authority: example.com`,
 			Claims:     `{"authority": "*.example.com"}`,
+			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "wildcard list claim",
-			Expect:     http.StatusOK,
-			Secret:     "fixed secret",
-			Method:     jwt.SigningMethodHS256,
-			Require:    `{"authority": "test.example.com"}`,
+			Name:   "wildcard list claim",
+			Expect: http.StatusOK,
+			Config: `
+				secret: fixed secret
+				require:
+					authority: test.example.com`,
 			Claims:     `{"authority": ["*.example.com", "other.example.com"]}`,
+			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "integer claim",
-			Expect:     http.StatusOK,
-			Secret:     "fixed secret",
-			Method:     jwt.SigningMethodHS256,
-			Require:    `{"group": 456}`,
-			Claims:     `{"group": [123, 456]}`,
-			HeaderName: "Authorization",
-		},
-		{
-			Name:       "list with wildcard list claim",
-			Expect:     http.StatusOK,
-			Secret:     "fixed secret",
-			Method:     jwt.SigningMethodHS256,
-			Require:    `{"authority": ["test.example.com", "other.other.com"]}`,
+			Name:   "list with wildcard list claim",
+			Expect: http.StatusOK,
+			Config: `
+				secret: fixed secret
+				require:
+					authority: ["test.example.com", "other.other.com"]`,
 			Claims:     `{"authority": ["*.example.com", "other.example.com"]}`,
+			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
 		},
 		{
 			Name:   "wildcard object and single required and nested",
 			Expect: http.StatusOK,
-			Secret: "fixed secret",
-			Method: jwt.SigningMethodHS256,
-			Require: `{
-				"authority": {
-					"test.example.com": "user"
-				}
-			}`,
+			Config: `
+				secret: fixed secret
+				require:
+					authority:
+						"test.example.com": "user"`,
 			Claims: `{
 				"authority": {
 					"*.example.com": "user"
 				}
 			}`,
+			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
 		},
 		{
 			Name:   "wildcard object and single requred and multilpe nested",
 			Expect: http.StatusOK,
-			Secret: "fixed secret",
-			Method: jwt.SigningMethodHS256,
-			Require: `{
-				"authority": {
-					"test.example.com": "user"
-				}
-			}`,
+			Config: `
+				secret: fixed secret
+				require:
+					authority:
+						"test.example.com": "user"`,
 			Claims: `{
 				"authority": {
 					"*.example.com": ["user", "admin"]
 				}
 			}`,
+			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
 		},
 		{
 			Name:   "wildcard object and multiple required and single nested",
 			Expect: http.StatusOK,
-			Secret: "fixed secret",
-			Method: jwt.SigningMethodHS256,
-			Require: `{
-				"authority": {
-					"test.example.com": ["user", "admin"]
-				}
-			}`,
+			Config: `
+				secret: fixed secret
+				require:
+					authority:
+						"test.example.com": ["user", "admin"]`,
 			Claims: `{
 				"authority": {
 					"*.example.com": "user"
 				}
 			}`,
+			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
 		},
 		{
 			Name:   "wildcard object and irrelevant nested value claim",
 			Expect: http.StatusOK,
-			Secret: "fixed secret",
-			Method: jwt.SigningMethodHS256,
-			Require: `{
-				"authority": "test.example.com"
-			}`,
+			Config: `
+				secret: fixed secret
+				require:
+					authority: "test.example.com"`,
 			Claims: `{
 				"authority": {
 					"*.example.com": ["user", "admin"]
 				}
 			}`,
+			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
 		},
 		{
 			Name:   "wildcard object bad nested value claim",
 			Expect: http.StatusForbidden,
-			Secret: "fixed secret",
-			Method: jwt.SigningMethodHS256,
-			Require: `{
-				"authority": {
-					"test.example.com": "admin"
-				}
-			}`,
+			Config: `
+				secret: fixed secret
+				require:
+					authority:
+						"test.example.com": "admin"`,
 			Claims: `{
 				"authority": {
 					"*.example.com": ["user", "guest"]
 				}
 			}`,
+			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "bad wildcard claim",
-			Expect:     http.StatusForbidden,
-			Secret:     "fixed secret",
-			Method:     jwt.SigningMethodHS256,
-			Require:    `{"authority": "test.company.com"}`,
+			Name:   "bad wildcard claim",
+			Expect: http.StatusForbidden,
+			Config: `
+				secret: fixed secret
+				require:
+					authority: "test.company.com"`,
 			Claims:     `{"authority": "*.example.com"}`,
-			HeaderName: "Authorization",
-		},
-		{
-			Name:       "bad wildcard list claim",
-			Expect:     http.StatusForbidden,
-			Secret:     "fixed secret",
 			Method:     jwt.SigningMethodHS256,
-			Require:    `{"authority": "test.example.com"}`,
-			Claims:     `{"authority": ["*.company.com", "other.example.com"]}`,
 			HeaderName: "Authorization",
 		},
 		{
-			Name:    "bad wildcard object claim",
-			Expect:  http.StatusForbidden,
-			Secret:  "fixed secret",
-			Method:  jwt.SigningMethodHS256,
-			Require: `{"authority": "test.example.com"}`,
+			Name:   "bad wildcard list claim",
+			Expect: http.StatusForbidden,
+			Config: `
+				secret: fixed secret
+				require:
+					authority: "test.example.com"`,
+			Claims:     `{"authority": ["*.company.com", "other.example.com"]}`,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:   "bad wildcard object claim",
+			Expect: http.StatusForbidden,
+			Config: `
+				secret: fixed secret
+				require:
+					authority: "test.example.com"`,
 			Claims: `{
 				"authority": {
 					"*.company.com": ["user", "admin"]
 				}
 			}`,
-			HeaderName: "Authorization",
-		},
-		{
-			Name:       "SigningMethodHS256",
-			Expect:     http.StatusOK,
-			Secret:     "fixed secret",
 			Method:     jwt.SigningMethodHS256,
-			Require:    `{"aud": "test"}`,
-			Claims:     `{"aud": "test"}`,
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "SigningMethodRS256",
-			Expect:     http.StatusOK,
+			Name:   "SigningMethodHS256",
+			Expect: http.StatusOK,
+			Config: `
+				secret: fixed secret
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:   "SigningMethodRS256",
+			Expect: http.StatusOK,
+			Config: `
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
 			Method:     jwt.SigningMethodRS256,
-			Require:    `{"aud": "test"}`,
-			Claims:     `{"aud": "test"}`,
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "SigningMethodRS512",
-			Expect:     http.StatusOK,
+			Name:   "SigningMethodRS512",
+			Expect: http.StatusOK,
+			Config: `
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
 			Method:     jwt.SigningMethodRS512,
-			Require:    `{"aud": "test"}`,
-			Claims:     `{"aud": "test"}`,
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "SigningMethodES256",
-			Expect:     http.StatusOK,
+			Name:   "SigningMethodES256",
+			Expect: http.StatusOK,
+			Config: `
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
 			Method:     jwt.SigningMethodES256,
-			Require:    `{"aud": "test"}`,
-			Claims:     `{"aud": "test"}`,
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "SigningMethodES384",
-			Expect:     http.StatusOK,
+			Name:   "SigningMethodES384",
+			Expect: http.StatusOK,
+			Config: `
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
 			Method:     jwt.SigningMethodES384,
-			Require:    `{"aud": "test"}`,
-			Claims:     `{"aud": "test"}`,
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "SigningMethodES512",
-			Expect:     http.StatusOK,
+			Name:   "SigningMethodES512",
+			Expect: http.StatusOK,
+			Config: `
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
 			Method:     jwt.SigningMethodES512,
-			Require:    `{"aud": "test"}`,
-			Claims:     `{"aud": "test"}`,
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "SigningMethodRS256 with missing kid",
-			Expect:     http.StatusOK,
-			Method:     jwt.SigningMethodRS256,
-			Require:    `{"aud": "test"}`,
+			Name:   "SigningMethodRS256 with missing kid",
+			Expect: http.StatusOK,
+			Config: `
+				require:
+					aud: test`,
 			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodRS256,
 			HeaderName: "Authorization",
 			Actions:    map[string]string{"set:kid": ""},
 		},
 		{
-			Name:       "SigningMethodRS256 with bad n",
-			Expect:     http.StatusUnauthorized,
-			Method:     jwt.SigningMethodRS256,
-			Require:    `{"aud": "test"}`,
+			Name:   "SigningMethodRS256 with bad n",
+			Expect: http.StatusUnauthorized,
+			Config: `
+				require:
+					aud: test`,
 			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodRS256,
 			HeaderName: "Authorization",
 			Actions:    map[string]string{"set:n": "dummy"},
 		},
 		{
-			Name:       "SigningMethodRS256 with bad e",
-			Expect:     http.StatusUnauthorized,
-			Method:     jwt.SigningMethodRS256,
-			Require:    `{"aud": "test"}`,
+			Name:   "SigningMethodRS256 with bad e",
+			Expect: http.StatusUnauthorized,
+			Config: `
+				require:
+					aud: test`,
 			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodRS256,
 			HeaderName: "Authorization",
 			Actions:    map[string]string{"set:e": "dummy"},
 		},
 		{
-			Name:       "SigningMethodES256 with missing kid",
-			Expect:     http.StatusOK,
-			Method:     jwt.SigningMethodES256,
-			Require:    `{"aud": "test"}`,
+			Name:   "SigningMethodES256 with missing kid",
+			Expect: http.StatusOK,
+			Config: `
+				require:
+					aud: test`,
 			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodES256,
 			HeaderName: "Authorization",
 			Actions:    map[string]string{"set:kid": ""},
 		},
 		{
-			Name:       "SigningMethodES256 with bad x",
-			Expect:     http.StatusUnauthorized,
-			Method:     jwt.SigningMethodES256,
-			Require:    `{"aud": "test"}`,
+			Name:   "SigningMethodES256 with bad x",
+			Expect: http.StatusUnauthorized,
+			Config: `
+				require:
+					aud: test`,
 			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodES256,
 			HeaderName: "Authorization",
 			Actions:    map[string]string{"set:x": "dummy"},
 		},
 		{
-			Name:       "SigningMethodES256 with bad y",
-			Expect:     http.StatusUnauthorized,
-			Method:     jwt.SigningMethodES256,
-			Require:    `{"aud": "test"}`,
+			Name:   "SigningMethodES256 with bad y",
+			Expect: http.StatusUnauthorized,
+			Config: `
+				require:
+					aud: test`,
 			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodES256,
 			HeaderName: "Authorization",
 			Actions:    map[string]string{"set:y": "dummy"},
 		},
 		{
-			Name:       "SigningMethodES256 with missing crv",
-			Expect:     http.StatusOK,
-			Method:     jwt.SigningMethodES256,
-			Require:    `{"aud": "test"}`,
+			Name:   "SigningMethodES256 with missing crv",
+			Expect: http.StatusOK,
+			Config: `
+				require:
+					aud: test`,
 			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodES256,
 			HeaderName: "Authorization",
 			Actions:    map[string]string{"set:crv": "dummy"},
 		},
 		{
-			Name:       "SigningMethodES256 with missing crv and alg",
-			Expect:     http.StatusOK,
-			Method:     jwt.SigningMethodES256,
-			Require:    `{"aud": "test"}`,
+			Name:   "SigningMethodES256 with missing crv and alg",
+			Expect: http.StatusOK,
+			Config: `
+				require:
+					aud: test`,
 			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodES256,
 			HeaderName: "Authorization",
 			Actions:    map[string]string{"set:crv": "dummy", "set:alg": "dummy"},
 		},
 		{
-			Name:       "SigningMethodES384 with missing crv",
-			Expect:     http.StatusOK,
+			Name:   "SigningMethodES384 with missing crv",
+			Expect: http.StatusOK,
+			Config: `
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
 			Method:     jwt.SigningMethodES384,
-			Require:    `{"aud": "test"}`,
-			Claims:     `{"aud": "test"}`,
 			HeaderName: "Authorization",
 			Actions:    map[string]string{"set:crv": "dummy"},
 		},
 		{
-			Name:       "SigningMethodES512 with missing crv",
-			Expect:     http.StatusOK,
+			Name:   "SigningMethodES512 with missing crv",
+			Expect: http.StatusOK,
+			Config: `
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
 			Method:     jwt.SigningMethodES512,
-			Require:    `{"aud": "test"}`,
-			Claims:     `{"aud": "test"}`,
 			HeaderName: "Authorization",
 			Actions:    map[string]string{"set:crv": "dummy"},
 		},
 		{
-			Name:       "SigningMethodRS256 in fixed secret",
-			Expect:     http.StatusOK,
+			Name:   "SigningMethodRS256 in fixed secret",
+			Expect: http.StatusOK,
+			Config: `
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
 			Method:     jwt.SigningMethodRS256,
-			Require:    `{"aud": "test"}`,
-			Claims:     `{"aud": "test"}`,
 			HeaderName: "Authorization",
 			Actions:    map[string]string{"useFixedSecret": "yes", "noAddIsser": "yes"},
 		},
 		{
-			Name:       "SigningMethodRS512 in fixed secret",
-			Expect:     http.StatusOK,
+			Name:   "SigningMethodRS512 in fixed secret",
+			Expect: http.StatusOK,
+			Config: `
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
 			Method:     jwt.SigningMethodRS512,
-			Require:    `{"aud": "test"}`,
-			Claims:     `{"aud": "test"}`,
 			HeaderName: "Authorization",
 			Actions:    map[string]string{"useFixedSecret": "yes", "noAddIsser": "yes"},
 		},
 		{
-			Name:       "SigningMethodES256 in fixed secret",
-			Expect:     http.StatusOK,
+			Name:   "SigningMethodES256 in fixed secret",
+			Expect: http.StatusOK,
+			Config: `
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
 			Method:     jwt.SigningMethodES256,
-			Require:    `{"aud": "test"}`,
-			Claims:     `{"aud": "test"}`,
 			HeaderName: "Authorization",
 			Actions:    map[string]string{"useFixedSecret": "yes", "noAddIsser": "yes"},
 		},
 		{
-			Name:       "SigningMethodES384 in fixed secret",
-			Expect:     http.StatusOK,
+			Name:   "SigningMethodES384 in fixed secret",
+			Expect: http.StatusOK,
+			Config: `
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
 			Method:     jwt.SigningMethodES384,
-			Require:    `{"aud": "test"}`,
-			Claims:     `{"aud": "test"}`,
 			HeaderName: "Authorization",
 			Actions:    map[string]string{"useFixedSecret": "yes", "noAddIsser": "yes"},
 		},
 		{
-			Name:       "SigningMethodES512 in fixed secret",
-			Expect:     http.StatusOK,
-			Method:     jwt.SigningMethodES512,
-			Require:    `{"aud": "test"}`,
+			Name:   "SigningMethodES512 in fixed secret",
+			Expect: http.StatusOK,
+			Config: `
+				require:
+					aud: test`,
 			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodES512,
 			HeaderName: "Authorization",
 			Actions:    map[string]string{"useFixedSecret": "yes", "noAddIsser": "yes"},
 		},
 		{
 			Name:              "bad fixed secret",
 			ExpectPluginError: "invalid key: Key must be a PEM encoded PKCS1 or PKCS8 key",
-			Secret:            "-----BEGIN RSA PUBLIC KEY",
-			Method:            jwt.SigningMethodRS512,
-			Require:           `{"aud": "test"}`,
-			Claims:            `{"aud": "test"}`,
-			CookieName:        "Authorization",
+			Config: `
+				secret: -----BEGIN RSA PUBLIC KEY 
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodRS512,
+			CookieName: "Authorization",
 		},
 		{
-			Name:       "unknown issuer",
-			Expect:     http.StatusUnauthorized,
-			Method:     jwt.SigningMethodRS256,
-			Require:    `{"aud": "test"}`,
+			Name:   "unknown issuer",
+			Expect: http.StatusUnauthorized,
+			Config: `
+				require:
+					aud: test`,
 			Claims:     `{"aud": "test", "iss": "unknown.com"}`,
+			Method:     jwt.SigningMethodRS256,
 			HeaderName: "Authorization",
 		},
 		{
-			Name:       "no issuer",
-			Expect:     http.StatusUnauthorized,
-			Method:     jwt.SigningMethodRS256,
-			Require:    `{"aud": "test"}`,
+			Name:   "no issuer",
+			Expect: http.StatusUnauthorized,
+			Config: `
+				require:
+					aud: test`,
 			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodRS256,
 			HeaderName: "Authorization",
 			Actions:    map[string]string{"excludeIss": "yes"},
 		},
 		{
-			Name:       "wildcard isser",
-			Expect:     http.StatusOK,
-			Issuers:    []string{"http://127.0.0.1:*/"},
-			Method:     jwt.SigningMethodES256,
-			Require:    `{"aud": "test"}`,
+			Name:   "wildcard isser",
+			Expect: http.StatusOK,
+			Config: `
+				issuers:
+				    - "http://127.0.0.1:*/"
+				require:
+					aud: test`,
 			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodES256,
 			HeaderName: "Authorization",
 			Actions:    map[string]string{"noAddIsser": "yes"},
 		},
 		{
-			Name:       "bad wildcard isser",
-			Expect:     http.StatusUnauthorized,
-			Issuers:    []string{"http://example.com:*/"},
-			Method:     jwt.SigningMethodES256,
-			Require:    `{"aud": "test"}`,
+			Name:   "bad wildcard isser",
+			Expect: http.StatusUnauthorized,
+			Config: `
+				issuers:
+				    - "http://example.com:*/"
+				require:
+					aud: test`,
 			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodES256,
 			HeaderName: "Authorization",
 			Actions:    map[string]string{"noAddIsser": "yes"},
 		},
 		{
-			Name:       "key rotation",
-			Expect:     http.StatusOK,
+			Name:   "key rotation",
+			Expect: http.StatusOK,
+			Config: `
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
 			Method:     jwt.SigningMethodRS256,
-			Require:    `{"aud": "test"}`,
-			Claims:     `{"aud": "test"}`,
 			HeaderName: "Authorization",
 			Actions:    map[string]string{"rotateKey": "yes"},
 		},
 		{
-			Name:       "server internal error",
-			Expect:     http.StatusUnauthorized,
-			Method:     jwt.SigningMethodES256,
-			Require:    `{"aud": "test"}`,
+			Name:   "server internal error",
+			Expect: http.StatusUnauthorized,
+			Config: `
+				require:
+					aud: test`,
 			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodES256,
 			HeaderName: "Authorization",
 			Actions:    map[string]string{"serverStatus": "500"},
 		},
 		{
-			Name:       "invalid json",
-			Expect:     http.StatusUnauthorized,
-			Method:     jwt.SigningMethodES256,
-			Require:    `{"aud": "test"}`,
+			Name:   "invalid json",
+			Expect: http.StatusUnauthorized,
+			Config: `
+				require:
+					aud: test`,
 			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodES256,
 			HeaderName: "Authorization",
 			Actions:    map[string]string{"invalidJSON": "invalid"},
 		},
 		{
-			Name:                 "redirect with expired token",
-			Expect:               http.StatusFound,
-			ExpectRedirect:       "https://example.com/login?return_to=https://app.example.com/home?id=1",
-			Secret:               "fixed secret",
-			Method:               jwt.SigningMethodHS256,
-			Require:              `{"aud": "test"}`,
-			RedirectUnauthorized: "https://example.com/login?return_to={{.URL}}",
-			RedirectForbidden:    "https://example.com/unauthorized?return_to={{.URL}}",
-			Claims:               `{"aud": "test", "exp": 1692043084}`,
-			HeaderName:           "Authorization",
+			Name:           "redirect with expired token",
+			Expect:         http.StatusFound,
+			ExpectRedirect: "https://example.com/login?return_to=https://app.example.com/home?id=1",
+			Config: `
+				secret: fixed secret
+				require:
+					aud: test
+				redirectUnauthorized: https://example.com/login?return_to={{.URL}}
+				redirectForbidden: https://example.com/unauthorized?return_to={{.URL}}`,
+			Claims:     `{"aud": "test", "exp": 1692043084}`,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
 		},
 		{
-			Name:                 "redirect with expired token and traefik-style URL",
-			Expect:               http.StatusFound,
-			ExpectRedirect:       "https://example.com/login?return_to=https://app.example.com/home?id=1",
-			Secret:               "fixed secret",
-			Method:               jwt.SigningMethodHS256,
-			Require:              `{"aud": "test"}`,
-			RedirectUnauthorized: "https://example.com/login?return_to={{.URL}}",
-			RedirectForbidden:    "https://example.com/unauthorized?return_to={{.URL}}",
-			Claims:               `{"aud": "test", "exp": 1692043084}`,
-			HeaderName:           "Authorization",
-			Actions:              map[string]string{"traefikURL": "invalid"},
+			Name:           "redirect with expired token and traefik-style URL",
+			Expect:         http.StatusFound,
+			ExpectRedirect: "https://example.com/login?return_to=https://app.example.com/home?id=1",
+			Config: `
+				secret: fixed secret
+				require:
+					aud: test
+				redirectUnauthorized: https://example.com/login?return_to={{.URL}}
+				redirectForbidden: https://example.com/unauthorized?return_to={{.URL}}`,
+			Claims:     `{"aud": "test", "exp": 1692043084}`,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
+			Actions:    map[string]string{"traefikURL": "invalid"},
 		},
 		{
-			Name:                 "redirect with missing claim",
-			Expect:               http.StatusFound,
-			ExpectRedirect:       "https://example.com/unauthorized?return_to=https://app.example.com/home?id=1",
-			Secret:               "fixed secret",
-			Method:               jwt.SigningMethodHS256,
-			Require:              `{"aud": "test"}`,
-			RedirectUnauthorized: "https://example.com/login?return_to={{.URL}}",
-			RedirectForbidden:    "https://example.com/unauthorized?return_to={{.URL}}",
-			Claims:               `{}`,
-			HeaderName:           "Authorization",
+			Name:           "redirect with missing claim",
+			Expect:         http.StatusFound,
+			ExpectRedirect: "https://example.com/unauthorized?return_to=https://app.example.com/home?id=1",
+			Config: `
+				secret: fixed secret
+				require:
+					aud: test
+				redirectUnauthorized: https://example.com/login?return_to={{.URL}}
+				redirectForbidden: https://example.com/unauthorized?return_to={{.URL}}`,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
 		},
 		{
-			Name:                 "redirect with bad interpolation",
-			Expect:               http.StatusInternalServerError,
-			ExpectRedirect:       "https://example.com/unauthorized?return_to=https://app.example.com/home?id=1",
-			Secret:               "fixed secret",
-			Method:               jwt.SigningMethodHS256,
-			Require:              `{"aud": "test"}`,
-			RedirectUnauthorized: "https://example.com/login?return_to={{.URL}}",
-			RedirectForbidden:    "https://example.com/unauthorized?return_to={{.Unknown}}",
-			Claims:               `{}`,
-			HeaderName:           "Authorization",
+			Name:           "redirect with bad interpolation",
+			Expect:         http.StatusInternalServerError,
+			ExpectRedirect: "https://example.com/unauthorized?return_to=https://app.example.com/home?id=1",
+			Config: `
+				secret: fixed secret
+				require:
+					aud: test
+				redirectUnauthorized: https://example.com/login?return_to={{.URL}}
+				redirectForbidden: https://example.com/unauthorized?return_to={{.Unknown}}`,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
 		},
 		{
 			Name:          "map headers",
 			Expect:        http.StatusOK,
 			ExpectHeaders: map[string]string{"X-Id": "1234"},
-			Issuers:       []string{"https://dummy.exmaple.com", "https://exmaple.com"},
-			Secret:        "fixed secret",
-			Method:        jwt.SigningMethodHS256,
-			Require:       `{"aud": "test"}`,
-			HeaderMap:     map[string]string{"X-Id": "user"},
-			Claims:        `{"aud": "test", "user": "1234"}`,
-			HeaderName:    "Authorization",
+			Config: `
+				issuers:
+					- https://dummy.example.com
+					- https://example.com
+				secret: fixed secret
+				require:
+					aud: test
+				headerMap:
+					X-Id: user
+				forwardToken: false`,
+			HeaderMap:  map[string]string{"X-Id": "user"},
+			Claims:     `{"aud": "test", "user": "1234"}`,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
 		},
 		{
 			Name:          "cookies",
 			Expect:        http.StatusOK,
 			ExpectCookies: map[string]string{"Test": "test", "Other": "other"},
-			Issuers:       []string{"https://dummy.exmaple.com", "https://exmaple.com"},
-			Secret:        "fixed secret",
-			Method:        jwt.SigningMethodHS256,
-			Require:       `{"aud": "test"}`,
-			Claims:        `{"aud": "test"}`,
 			Cookies:       map[string]string{"Test": "test", "Other": "other"},
-			CookieName:    "Authorization",
-			ForwardToken:  false,
+			Config: `
+				issuers:
+					- https://dummy.example.com
+					- https://example.com
+				secret: fixed secret
+				require:
+					aud: test
+				forwardToken: false`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodHS256,
+			CookieName: "Authorization",
 		},
 	}
 
@@ -725,18 +830,36 @@ func TestServeHTTP(tester *testing.T) {
 	}
 }
 
-func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
-	// Set up the config
-	if test.RequireMap == nil {
-		if test.Require == "" {
-			test.Require = "{}"
-		}
-		err := json.Unmarshal([]byte(test.Require), &test.RequireMap)
-		if err != nil {
-			return nil, nil, nil, err
-		}
+// createConfig creates a configuration from a YAML string using the same method traefik
+func createConfig(text string) (*Config, error) {
+	var config map[string]interface{}
+	err := yaml.Unmarshal([]byte(strings.Replace(text, "\t", "    ", -1)), &config)
+	if err != nil {
+		return nil, err
 	}
 
+	result := CreateConfig()
+	if len(config) == 0 {
+		return result, nil
+	}
+
+	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+		DecodeHook:       mapstructure.StringToSliceHookFunc(","),
+		WeaklyTypedInput: true,
+		Result:           result,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create configuration decoder: %w", err)
+	}
+
+	err = decoder.Decode(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode configuration: %w", err)
+	}
+	return result, nil
+}
+
+func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 	// Set up test record
 	if test.ClaimsMap == nil {
 		if test.Claims == "" {
@@ -748,6 +871,12 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 		}
 	}
 
+	// Set up the config
+	config, err := createConfig(test.Config)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
 	context := context.Background()
 
 	request, err := http.NewRequestWithContext(context, http.MethodGet, "https://app.example.com/home?id=1", nil)
@@ -756,24 +885,7 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 	}
 
 	if test.Actions["useFixedSecret"] == "yes" {
-		addTokenToRequest(test, request)
-	}
-
-	defaults := CreateConfig()
-	config := Config{
-		ValidMethods:         defaults.ValidMethods,
-		Issuers:              test.Issuers,
-		Secret:               test.Secret,
-		Require:              test.RequireMap,
-		Optional:             test.Optional,
-		RedirectUnauthorized: test.RedirectUnauthorized,
-		RedirectForbidden:    test.RedirectForbidden,
-		CookieName:           coalesce(test.CookieName, defaults.CookieName),
-		HeaderName:           coalesce(test.HeaderName, defaults.HeaderName),
-		ParameterName:        coalesce(test.ParameterName, defaults.ParameterName),
-		HeaderMap:            test.HeaderMap,
-		ForwardToken:         test.ForwardToken, // || defaults.ForwardToken,
-		Freshness:            defaults.Freshness,
+		addTokenToRequest(test, config, request)
 	}
 
 	// Run a test server to provide the key(s)
@@ -800,18 +912,17 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 		}
 		fmt.Fprintln(response, string(keysJSON))
 	}))
-	test.Issuer = server.URL
 	if _, present := test.Actions["noAddIsser"]; !present {
 		config.Issuers = append(config.Issuers, server.URL)
 	}
 
-	if test.Issuer != "" && test.ClaimsMap["iss"] == nil && test.Actions["excludeIss"] == "" {
-		test.ClaimsMap["iss"] = test.Issuer
+	if test.ClaimsMap["iss"] == nil && test.Actions["excludeIss"] == "" {
+		test.ClaimsMap["iss"] = server.URL
 	}
 
 	// Create the plugin
 	next := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) { test.Result = true })
-	plugin, err := New(context, next, &config, "test-jwt-middleware")
+	plugin, err := New(context, next, config, "test-jwt-middleware")
 	if err != nil {
 		if err.Error() == test.ExpectPluginError {
 			return nil, nil, nil, nil
@@ -822,17 +933,17 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 	if test.Actions["useFixedSecret"] != "yes" {
 		if _, ok := test.Actions["rotateKey"]; ok {
 			// Similate a key rotation by ...
-			addTokenToRequest(test, request)                  // adding a new key to the server ...
+			addTokenToRequest(test, config, request)          // adding a new key to the server ...
 			plugin.ServeHTTP(httptest.NewRecorder(), request) // causing the plugin to fetch it and then ...
 			test.Keys.Keys = nil                              // removing it from the server
 		}
 
-		addTokenToRequest(test, request)
+		addTokenToRequest(test, config, request)
 	}
 	return plugin, request, server, nil
 }
 
-func addTokenToRequest(test *Test, request *http.Request) {
+func addTokenToRequest(test *Test, config *Config, request *http.Request) {
 	// Set up request
 	if _, ok := test.Actions["traefikURL"]; ok {
 		request.URL.Host = ""
@@ -843,7 +954,7 @@ func addTokenToRequest(test *Test, request *http.Request) {
 	}
 
 	// Set the token in the request
-	token := createTokenAndSaveKey(test)
+	token := createTokenAndSaveKey(test, config)
 	if token != "" {
 		if test.CookieName != "" {
 			request.AddCookie(&http.Cookie{Name: test.CookieName, Value: token})
@@ -888,7 +999,7 @@ func jsonActions(actions map[string]string, keys []byte) ([]byte, error) {
 }
 
 // createTokenAndSaveKey creates a key, then a token and adds it to the key set, then token and keys for the test.
-func createTokenAndSaveKey(test *Test) string {
+func createTokenAndSaveKey(test *Test, config *Config) string {
 	method := test.Method
 	if method == nil {
 		return ""
@@ -899,10 +1010,10 @@ func createTokenAndSaveKey(test *Test) string {
 	var publicPEM string
 	switch method {
 	case jwt.SigningMethodHS256:
-		if test.Secret == "" {
+		if config.Secret == "" {
 			panic(fmt.Errorf("secret is required for %s", method.Alg()))
 		}
-		private = []byte(test.Secret)
+		private = []byte(config.Secret)
 	case jwt.SigningMethodRS256, jwt.SigningMethodRS512:
 		secret, err := rsa.GenerateKey(rand.Reader, 2048)
 		if err != nil {
@@ -943,7 +1054,7 @@ func createTokenAndSaveKey(test *Test) string {
 	}
 
 	if test.Actions["useFixedSecret"] == "yes" {
-		test.Secret = publicPEM
+		config.Secret = publicPEM
 	} else if method != jwt.SigningMethodHS256 {
 		jwk, kid := convertKeyToJWKWithKID(public, method.Alg())
 		test.Keys.Keys = append(test.Keys.Keys, jwk)
@@ -993,22 +1104,14 @@ func TestCanonicalizeDomains(tester *testing.T) {
 	}
 }
 
-// coalesce returns the first non empty string
-func coalesce(values ...string) string {
-	for _, value := range values {
-		if value != "" {
-			return value
-		}
-	}
-	return ""
-}
-
 func BenchmarkServeHTTP(benchmark *testing.B) {
 	test := Test{
-		Name:       "SigningMethodRS256 passes",
-		Expect:     http.StatusOK,
-		Method:     jwt.SigningMethodRS256,
-		Require:    `{"aud": "test"}`,
+		Name:   "SigningMethodRS256 passes",
+		Expect: http.StatusOK,
+		Method: jwt.SigningMethodRS256,
+		Config: `
+			require:
+				aud: test`,
 		Claims:     `{"aud": "test"}`,
 		HeaderName: "Authorization",
 	}

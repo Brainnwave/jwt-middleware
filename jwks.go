@@ -56,7 +56,9 @@ func FetchJWKS(url string) (map[string]interface{}, error) {
 	}
 	keys := make(map[string]interface{}, len(jwks.Keys))
 	for _, jwk := range jwks.Keys {
-		var public interface{}
+		if jwk.Kid == "" {
+			jwk.Kid = JWKThumbprint(jwk)
+		}
 		switch jwk.Kty {
 		case "RSA":
 			{
@@ -68,10 +70,10 @@ func FetchJWKS(url string) (map[string]interface{}, error) {
 				if err != nil {
 					break
 				}
-				key := new(rsa.PublicKey)
-				key.N = new(big.Int).SetBytes(nBytes)
-				key.E = int(new(big.Int).SetBytes(eBytes).Uint64())
-				public = key
+				keys[jwk.Kid] = &rsa.PublicKey{
+					N: new(big.Int).SetBytes(nBytes),
+					E: int(new(big.Int).SetBytes(eBytes).Uint64()),
+				}
 			}
 		case "EC":
 			{
@@ -103,17 +105,13 @@ func FetchJWKS(url string) (map[string]interface{}, error) {
 				if err != nil {
 					break
 				}
-				key := new(ecdsa.PublicKey)
-				key.Curve = curve
-				key.X = new(big.Int).SetBytes(xBytes)
-				key.Y = new(big.Int).SetBytes(yBytes)
-				public = key
+				keys[jwk.Kid] = &ecdsa.PublicKey{
+					Curve: curve,
+					X:     new(big.Int).SetBytes(xBytes),
+					Y:     new(big.Int).SetBytes(yBytes),
+				}
 			}
 		}
-		if jwk.Kid == "" {
-			jwk.Kid = JWKThumbprint(jwk)
-		}
-		keys[jwk.Kid] = public
 	}
 
 	return keys, nil
