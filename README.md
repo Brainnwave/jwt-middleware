@@ -17,7 +17,7 @@ experimental:
   plugins:
     jwt:
       moduleName: github.com/Brainnwave/jwt-middleware
-      version: v1.1.2
+      version: v1.1.5
 ```
 1b. or with command-line options:
 
@@ -25,7 +25,7 @@ experimental:
 command:
   ...
   - "--experimental.plugins.jwt.modulename=github.com/Brainnwave/jwt-middleware"
-  - "--experimental.plugins.jwt.version=v1.1.2"
+  - "--experimental.plugins.jwt.version=v1.1.5"
 ```
 
 2) Configure and activate the plugin as a middleware in your dynamic traefik config:
@@ -95,7 +95,7 @@ require:
 #### Dynamic Requirement
 E.g. for requiring that a token's audience matches the domain being accessed
 
-Will suceed then called on https://customer.example.com/example but fail on https://other.example.com/example
+Will suceed when called on https://customer.example.com/example but fail on https://other.example.com/example
 ```yaml
 require:
   aud: "{{`{{.Host}}`}}"
@@ -109,7 +109,7 @@ require:
 ```
 
 #### Wildcard Claim
-When called on https://customer.example.com/example..customer.example.com.
+Will suceed when called on https://customer.example.com/example
 ```yaml
 require:
   aud: "customer.example.com"
