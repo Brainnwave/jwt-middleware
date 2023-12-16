@@ -41,11 +41,11 @@ jobs:
         fi
         curl "https://img.shields.io/badge/Coverage-$total%25-$COLOR" > badge.svg
 
-    - name: Copy
-      uses: prewk/s3-cp-action@v2
-      with:
-        aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        source: './badge.svg'
-        dest: 's3://brainnwave.assets/badges/jwt/coverage.svg'
-        flags: --acl public-read 
+    # - name: Copy
+    #   uses: prewk/s3-cp-action@v2
+    #   with:
+    #     aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+    #     aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    #     source: './badge.svg'
+    #     dest: 's3://brainnwave.assets/badges/jwt/coverage.svg'
+    #     flags: --acl public-read 
