@@ -408,7 +408,13 @@ func (plugin *JWTPlugin) IsValidIssuer(issuer string) bool {
 
 // fetchKeys fetches the keys from well-known jwks endpoint for the given issuer and adds them to the key map.
 func (plugin *JWTPlugin) fetchKeys(issuer string) error {
-	url := issuer + ".well-known/jwks.json" // issuer has trailing slash
+	configURL := issuer + ".well-known/openid-configuration" // issuer has trailing slash
+	config, err := FetchOpenIDConfiguration(configURL)
+	if err != nil {
+		return err
+	}
+	log.Printf("fetched openid-configuration from url:%s", configURL)
+	url := config.JWKSURI
 	jwks, err := FetchJWKS(url)
 	if err != nil {
 		return err
