@@ -17,7 +17,7 @@ experimental:
   plugins:
     jwt:
       moduleName: github.com/Brainnwave/jwt-middleware
-      version: v1.1.5
+      version: v1.1.7
 ```
 1b. or with command-line options:
 
@@ -25,7 +25,7 @@ experimental:
 command:
   ...
   - "--experimental.plugins.jwt.modulename=github.com/Brainnwave/jwt-middleware"
-  - "--experimental.plugins.jwt.version=v1.1.5"
+  - "--experimental.plugins.jwt.version=v1.1.7"
 ```
 
 2) Configure and activate the plugin as a middleware in your dynamic traefik config:
