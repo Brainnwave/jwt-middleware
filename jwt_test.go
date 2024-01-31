@@ -390,6 +390,16 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
+			Name:   "SigningMethodRS384",
+			Expect: http.StatusOK,
+			Config: `
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodRS384,
+			HeaderName: "Authorization",
+		},
+		{
 			Name:   "SigningMethodRS512",
 			Expect: http.StatusOK,
 			Config: `
@@ -1092,12 +1102,12 @@ func createTokenAndSaveKey(test *Test, config *Config) string {
 	var public interface{}
 	var publicPEM string
 	switch method {
-	case jwt.SigningMethodHS256:
+	case jwt.SigningMethodHS256, jwt.SigningMethodHS384, jwt.SigningMethodHS512:
 		if config.Secret == "" {
 			panic(fmt.Errorf("secret is required for %s", method.Alg()))
 		}
 		private = []byte(config.Secret)
-	case jwt.SigningMethodRS256, jwt.SigningMethodRS512:
+	case jwt.SigningMethodRS256, jwt.SigningMethodRS384, jwt.SigningMethodRS512:
 		secret, err := rsa.GenerateKey(rand.Reader, 2048)
 		if err != nil {
 			panic(err)

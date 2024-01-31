@@ -1,12 +1,13 @@
-[![Go](https://brainnwave.com/badges/jwt-middleware/status.svg)](https://github.com/Brainnwave/jwt-middleware/actions/workflows/go.yml)
-[![Coverage](https://s3.amazonaws.com/brainnwave.assets/badges/jwt/coverage.svg)](https://github.com/Brainnwave/jwt-middleware/actions/workflows/go.yml)
+[![Build](https://github.com/Brainnwave/jwt-middleware/actions/workflows/build.yml/badge.svg)](https://github.com/Brainnwave/jwt-middleware/actions/workflows/build.yml)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=Brainnwave_jwt-middleware&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=Brainnwave_jwt-middleware)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=Brainnwave_jwt-middleware&metric=coverage)](https://sonarcloud.io/summary/new_code?id=Brainnwave_jwt-middleware)
 
 # Dynamic JWT Validation Middleware
 
 This is a middleware plugin for [Traefik](https://github.com/containous/traefik) with the following features:
 * Validation of JSON Web Tokens in cookies, headers, and/or query string parameters for access control.
-* Dynamic lookup of public keys from the well-known JWKS endpoint of whitelisted issuers.
-* HTTP redirects for unauthorized and forbidden calls when configured in interactive mode.
+* Dynamic lookup of public keys from the well-known OpenID configuration of whitelisted issuers.
+* Configurable HTTP redirects for unauthorized and forbidden calls in interactive mode.
 * Flexible claim checks, including optional wildcards and Go template interpolation.
 
 ## Configuration
@@ -17,7 +18,7 @@ experimental:
   plugins:
     jwt:
       moduleName: github.com/Brainnwave/jwt-middleware
-      version: v1.1.7
+      version: v1.1.8
 ```
 1b. or with command-line options:
 
@@ -25,7 +26,7 @@ experimental:
 command:
   ...
   - "--experimental.plugins.jwt.modulename=github.com/Brainnwave/jwt-middleware"
-  - "--experimental.plugins.jwt.version=v1.1.7"
+  - "--experimental.plugins.jwt.version=v1.1.8"
 ```
 
 2) Configure and activate the plugin as a middleware in your dynamic traefik config:
