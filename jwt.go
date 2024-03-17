@@ -20,8 +20,8 @@ import (
 
 // Config is the configuration for the plugin.
 type Config struct {
-	ValidMethods         []string
-	Issuers              []string
+	ValidMethods         []string               `json:"validMethods,omitempty"`
+	Issuers              []string               `json:"issuers,omitempty"`
 	Secret               string                 `json:"secret,omitempty"`
 	Require              map[string]interface{} `json:"require,omitempty"`
 	Optional             bool                   `json:"optional,omitempty"`
