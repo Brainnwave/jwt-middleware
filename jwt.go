@@ -91,7 +91,7 @@ func CreateConfig() *Config {
 	}
 }
 
-func SetupSecret(secret string) (interface{}, error) {
+func setupSecret(secret string) (interface{}, error) {
 	// If secret is empty, we don't have a fixed secret
 	if secret == "" {
 		return nil, nil
@@ -114,7 +114,7 @@ func SetupSecret(secret string) (interface{}, error) {
 func New(_ context.Context, next http.Handler, config *Config, name string) (http.Handler, error) {
 	log.SetFlags(0)
 
-	secret, err := SetupSecret(config.Secret)
+	secret, err := setupSecret(config.Secret)
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +155,7 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 // ServeHTTP is the middleware entry point.
 func (plugin *JWTPlugin) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	variables := plugin.createTemplateVariables(request)
-	status, err := plugin.Validate(request, variables)
+	status, err := plugin.validate(request, variables)
 	if err != nil {
 		if plugin.redirectUnauthorized != nil {
 			// Interactive clients should be redirected to the login page or unauthorized page.
@@ -181,8 +181,8 @@ func (plugin *JWTPlugin) ServeHTTP(response http.ResponseWriter, request *http.R
 	plugin.next.ServeHTTP(response, request)
 }
 
-// Validate validates the request and returns the HTTP status code or an error if the request is not valid. It also sets any headers that should be forwarded to the backend.
-func (plugin *JWTPlugin) Validate(request *http.Request, variables *TemplateVariables) (int, error) {
+// validate validates the request and returns the HTTP status code or an error if the request is not valid. It also sets any headers that should be forwarded to the backend.
+func (plugin *JWTPlugin) validate(request *http.Request, variables *TemplateVariables) (int, error) {
 	token := plugin.extractToken(request)
 	if token == "" {
 		// No token provided
@@ -191,7 +191,7 @@ func (plugin *JWTPlugin) Validate(request *http.Request, variables *TemplateVari
 		}
 	} else {
 		// Token provided
-		token, err := plugin.parser.Parse(token, plugin.GetKey)
+		token, err := plugin.parser.Parse(token, plugin.getKey)
 		if err != nil {
 			return http.StatusUnauthorized, err
 		}
@@ -200,10 +200,10 @@ func (plugin *JWTPlugin) Validate(request *http.Request, variables *TemplateVari
 
 		// Validate claims
 		for claim, requirements := range plugin.require {
-			result := plugin.ValidateClaim(claim, claims, requirements, variables)
+			result := plugin.validateClaim(claim, claims, requirements, variables)
 			if !result {
 				err := fmt.Errorf("claim is not valid: %s", claim)
-				// If the token is older than out freshness window, we allow that reauthorization might fix it
+				// If the token is older than our freshness window, we allow that reauthorization might fix it
 				iat, ok := claims["iat"]
 				if ok && plugin.freshness != 0 && time.Now().Unix()-int64(iat.(float64)) > plugin.freshness {
 					return http.StatusUnauthorized, err
@@ -226,7 +226,7 @@ func (plugin *JWTPlugin) Validate(request *http.Request, variables *TemplateVari
 }
 
 // Validate checks value against the requirement, calling ourself recursively for object and array values.
-// variables is required in the interface and passed on recusrively by ultimately ignored bu ValueRequirement
+// variables is required in the interface and passed on recusrively but ultimately ignored by ValueRequirement
 // having been already interpolated by TemplateRequirement
 func (requirement ValueRequirement) Validate(value interface{}, variables *TemplateVariables) bool {
 	switch value := value.(type) {
@@ -331,7 +331,7 @@ func createRequirement(value interface{}, nested interface{}) Requirement {
 	case string:
 		if strings.Contains(value, "{{") && strings.Contains(value, "}}") {
 			return TemplateRequirement{
-				template: template.Must(template.New("template").Parse(value)),
+				template: template.Must(template.New("template").Option("missingkey=error").Parse(value)),
 				nested:   nested,
 			}
 		}
@@ -339,8 +339,8 @@ func createRequirement(value interface{}, nested interface{}) Requirement {
 	return ValueRequirement{value: value, nested: nested}
 }
 
-// ValidateClaim
-func (plugin *JWTPlugin) ValidateClaim(claim string, claims jwt.MapClaims, requirements []Requirement, variables *TemplateVariables) bool {
+// validateClaim
+func (plugin *JWTPlugin) validateClaim(claim string, claims jwt.MapClaims, requirements []Requirement, variables *TemplateVariables) bool {
 	value, ok := claims[claim]
 	if ok {
 		for _, requirement := range requirements {
@@ -352,8 +352,8 @@ func (plugin *JWTPlugin) ValidateClaim(claim string, claims jwt.MapClaims, requi
 	return false
 }
 
-// GetKey gets the key for the given key ID from the plugin's key cache. If the key isn't present and the iss is valid according to the plugin's configuration, all keys for the iss are fetched and the key is looked up again.
-func (plugin *JWTPlugin) GetKey(token *jwt.Token) (interface{}, error) {
+// getKey gets the key for the given key ID from the plugin's key cache. If the key isn't present and the iss is valid according to the plugin's configuration, all keys for the iss are fetched and the key is looked up again.
+func (plugin *JWTPlugin) getKey(token *jwt.Token) (interface{}, error) {
 	kid, ok := token.Header["kid"]
 	if ok {
 		for fetched := false; ; fetched = true {
@@ -372,7 +372,7 @@ func (plugin *JWTPlugin) GetKey(token *jwt.Token) (interface{}, error) {
 			issuer, ok := token.Claims.(jwt.MapClaims)["iss"].(string)
 			if ok {
 				issuer = canonicalizeDomain(issuer)
-				if plugin.IsValidIssuer(issuer) {
+				if plugin.isValidIssuer(issuer) {
 					plugin.lock.Lock()
 					if _, ok := plugin.keys[kid.(string)]; !ok {
 						err := plugin.fetchKeys(issuer) // issue has trailing slash
@@ -396,8 +396,8 @@ func (plugin *JWTPlugin) GetKey(token *jwt.Token) (interface{}, error) {
 	return plugin.secret, nil
 }
 
-// IsValidIssuer returns true if the issuer is allowed by the Issers configuration.
-func (plugin *JWTPlugin) IsValidIssuer(issuer string) bool {
+// isValidIssuer returns true if the issuer is allowed by the Issers configuration.
+func (plugin *JWTPlugin) isValidIssuer(issuer string) bool {
 	for _, allowed := range plugin.issuers {
 		if fnmatch.Match(allowed, issuer, 0) {
 			return true
