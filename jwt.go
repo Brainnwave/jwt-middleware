@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"html/template"
 	"log"
+	"maps"
 	"net/http"
+	"os"
 	"reflect"
 	"strings"
 	"sync"
@@ -33,6 +35,10 @@ type Config struct {
 	Freshness            int64                  `json:"freshness,omitempty"`
 }
 
+// TemplateVariables are the per-request variables passed to Go templates for interpolation, such as the require and redirect templates.
+// This has become a map rather than a struct now because we add the environment variables to it.
+type TemplateVariables map[string]string
+
 // JWTPlugin is a traefik middleware plugin that authorizes access based on JWT tokens.
 type JWTPlugin struct {
 	next                 http.Handler
@@ -53,14 +59,7 @@ type JWTPlugin struct {
 	headerMap            map[string]string
 	forwardToken         bool
 	freshness            int64
-}
-
-// TemplateVariables are the per-request variables passed to Go templates for interpolation, such as the require and redirect templates.
-type TemplateVariables struct {
-	URL    string
-	Scheme string
-	Host   string
-	Path   string
+	environment          TemplateVariables
 }
 
 // Requirement is a requirement for a claim.
@@ -110,6 +109,17 @@ func setupSecret(secret string) (interface{}, error) {
 	return []byte(secret), nil
 }
 
+// environment returns the environment variables as a TemplateVariables (which is a map).
+func environment() TemplateVariables {
+	environment := os.Environ()
+	variables := make(TemplateVariables, len(environment))
+	for _, variable := range environment {
+		pair := strings.Split(variable, "=")
+		variables[pair[0]] = pair[1]
+	}
+	return variables
+}
+
 // New creates a new JWTPlugin.
 func New(_ context.Context, next http.Handler, config *Config, name string) (http.Handler, error) {
 	log.SetFlags(0)
@@ -137,6 +147,7 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		headerMap:            config.HeaderMap,
 		forwardToken:         config.ForwardToken,
 		freshness:            config.Freshness,
+		environment:          environment(),
 	}
 
 	for _, issuer := range plugin.issuers {
@@ -452,32 +463,35 @@ func canonicalizeDomains(domains []string) []string {
 	return domains
 }
 
-// createTemplate creates a template from the given redirect string, or nil if no specified.
+// createTemplate creates a template from the given string, or nil if not specified.
 func createTemplate(text string) *template.Template {
 	if text == "" {
 		return nil
 	}
-	return template.Must(template.New("template").Parse(text))
+	return template.Must(template.New("template").Option("missingkey=error").Parse(text))
 }
 
-// createTemplateVariables creates a template data object for the given request.
+// createTemplateVariables creates a template data map for the given request.
+// We start with a clone of our environment variables and add the the per-request variables.
+// The purpose of environment variables is to allow a easier way to set a configurable but then fixed value for a claim
+// requirement in the configuration file (as rewriting the configuration file is harder than setting environment variables).
 func (plugin *JWTPlugin) createTemplateVariables(request *http.Request) *TemplateVariables {
-	var variables TemplateVariables
+	variables := maps.Clone(plugin.environment)
 
 	if request.URL.Host != "" {
-		variables.URL = request.URL.String()
-		variables.Scheme = request.URL.Scheme
-		variables.Host = request.URL.Host
-		variables.Path = request.URL.Path
+		variables["Scheme"] = request.URL.Scheme
+		variables["Host"] = request.URL.Host
+		variables["Path"] = request.URL.Path
+		variables["URL"] = request.URL.String()
 	} else {
-		// (In at lease some situations) Traefik set only the path in the request.URL, so we need to reconstruct it
-		variables.Scheme = request.Header.Get("X-Forwarded-Proto")
-		if variables.Scheme == "" {
-			variables.Scheme = "https"
+		// (In at lease some situations) Traefik sets only the path in the request.URL, so we need to reconstruct it
+		variables["Scheme"] = request.Header.Get("X-Forwarded-Proto")
+		if variables["Scheme"] == "" {
+			variables["Scheme"] = "https"
 		}
-		variables.Host = request.Host
-		variables.Path = request.URL.RequestURI()
-		variables.URL = fmt.Sprintf("%s://%s%s", variables.Scheme, variables.Host, variables.Path)
+		variables["Host"] = request.Host
+		variables["Path"] = request.URL.RequestURI()
+		variables["URL"] = fmt.Sprintf("%s://%s%s", variables["Scheme"], variables["Host"], variables["Path"])
 	}
 
 	return &variables
