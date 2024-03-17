@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"html/template"
 	"log"
-	"maps"
 	"net/http"
 	"os"
 	"reflect"
@@ -35,10 +34,6 @@ type Config struct {
 	Freshness            int64                  `json:"freshness,omitempty"`
 }
 
-// TemplateVariables are the per-request variables passed to Go templates for interpolation, such as the require and redirect templates.
-// This has become a map rather than a struct now because we add the environment variables to it.
-type TemplateVariables map[string]string
-
 // JWTPlugin is a traefik middleware plugin that authorizes access based on JWT tokens.
 type JWTPlugin struct {
 	next                 http.Handler
@@ -59,8 +54,12 @@ type JWTPlugin struct {
 	headerMap            map[string]string
 	forwardToken         bool
 	freshness            int64
-	environment          TemplateVariables
+	environment          map[string]string
 }
+
+// TemplateVariables are the per-request variables passed to Go templates for interpolation, such as the require and redirect templates.
+// This has become a map rather than a struct now because we add the environment variables to it.
+type TemplateVariables map[string]string
 
 // Requirement is a requirement for a claim.
 type Requirement interface {
@@ -109,10 +108,10 @@ func setupSecret(secret string) (interface{}, error) {
 	return []byte(secret), nil
 }
 
-// environment returns the environment variables as a TemplateVariables (which is a map).
-func environment() TemplateVariables {
+// environment returns the environment variables as a map
+func environment() map[string]string {
 	environment := os.Environ()
-	variables := make(TemplateVariables, len(environment))
+	variables := make(map[string]string, len(environment))
 	for _, variable := range environment {
 		pair := strings.Split(variable, "=")
 		variables[pair[0]] = pair[1]
@@ -476,7 +475,11 @@ func createTemplate(text string) *template.Template {
 // The purpose of environment variables is to allow a easier way to set a configurable but then fixed value for a claim
 // requirement in the configuration file (as rewriting the configuration file is harder than setting environment variables).
 func (plugin *JWTPlugin) createTemplateVariables(request *http.Request) *TemplateVariables {
-	variables := maps.Clone(plugin.environment)
+	// copy the environment variables
+	variables := make(TemplateVariables, len(plugin.environment)+4)
+	for key, value := range plugin.environment {
+		variables[key] = value
+	}
 
 	if request.URL.Host != "" {
 		variables["Scheme"] = request.URL.Scheme
