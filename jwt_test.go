@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -46,6 +47,7 @@ type Test struct {
 	Claims            string
 	ClaimsMap         jwt.MapClaims
 	Actions           map[string]string
+	Environment       map[string]string
 }
 
 func TestServeHTTP(tester *testing.T) {
@@ -193,6 +195,41 @@ func TestServeHTTP(tester *testing.T) {
 				secret: fixed secret
 				require:
 					authority: "{{.Host}}"`,
+			Claims:     `{"authority": "*.example.com"}`,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:   "template requirement from environment variable",
+			Expect: http.StatusOK,
+			Config: `
+				secret: fixed secret
+				require:
+					authority: "{{.Domain}}"`,
+			Claims:      `{"authority": "*.example.com"}`,
+			Method:      jwt.SigningMethodHS256,
+			HeaderName:  "Authorization",
+			Environment: map[string]string{"Domain": "app.example.com"},
+		},
+		{
+			Name:   "invalid claim for template requirement from environment variable",
+			Expect: http.StatusForbidden,
+			Config: `
+				secret: fixed secret
+				require:
+					authority: "{{.Domain}}"`,
+			Claims:      `{"authority": "*.example.com"}`,
+			Method:      jwt.SigningMethodHS256,
+			HeaderName:  "Authorization",
+			Environment: map[string]string{"Domain": "app.other.com"},
+		},
+		{
+			Name:   "template requirement from missing environment variable",
+			Expect: http.StatusForbidden,
+			Config: `
+				secret: fixed secret
+				require:
+					authority: "{{.Domain}}"`,
 			Claims:     `{"authority": "*.example.com"}`,
 			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
@@ -941,6 +978,18 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 
 	if test.Actions["useFixedSecret"] == "yes" {
 		addTokenToRequest(test, config, request)
+	}
+
+	// Set up the environment
+	if test.Environment != nil {
+		for key, value := range test.Environment {
+			os.Setenv(key, value)
+		}
+		defer func() {
+			for key := range test.Environment {
+				os.Unsetenv(key)
+			}
+		}()
 	}
 
 	// Run a test server to provide the key(s)

@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"html/template"
 	"log"
+	"maps"
 	"net/http"
+	"os"
 	"reflect"
 	"strings"
 	"sync"
@@ -18,8 +20,8 @@ import (
 
 // Config is the configuration for the plugin.
 type Config struct {
-	ValidMethods         []string
-	Issuers              []string
+	ValidMethods         []string               `json:"validMethods,omitempty"`
+	Issuers              []string               `json:"issuers,omitempty"`
 	Secret               string                 `json:"secret,omitempty"`
 	Require              map[string]interface{} `json:"require,omitempty"`
 	Optional             bool                   `json:"optional,omitempty"`
@@ -32,6 +34,10 @@ type Config struct {
 	ForwardToken         bool                   `json:"forwardToken,omitempty"`
 	Freshness            int64                  `json:"freshness,omitempty"`
 }
+
+// TemplateVariables are the per-request variables passed to Go templates for interpolation, such as the require and redirect templates.
+// This has become a map rather than a struct now because we add the environment variables to it.
+type TemplateVariables map[string]string
 
 // JWTPlugin is a traefik middleware plugin that authorizes access based on JWT tokens.
 type JWTPlugin struct {
@@ -53,14 +59,7 @@ type JWTPlugin struct {
 	headerMap            map[string]string
 	forwardToken         bool
 	freshness            int64
-}
-
-// TemplateVariables are the per-request variables passed to Go templates for interpolation, such as the require and redirect templates.
-type TemplateVariables struct {
-	URL    string
-	Scheme string
-	Host   string
-	Path   string
+	environment          TemplateVariables
 }
 
 // Requirement is a requirement for a claim.
@@ -91,7 +90,7 @@ func CreateConfig() *Config {
 	}
 }
 
-func SetupSecret(secret string) (interface{}, error) {
+func setupSecret(secret string) (interface{}, error) {
 	// If secret is empty, we don't have a fixed secret
 	if secret == "" {
 		return nil, nil
@@ -110,11 +109,22 @@ func SetupSecret(secret string) (interface{}, error) {
 	return []byte(secret), nil
 }
 
+// environment returns the environment variables as a TemplateVariables (which is a map).
+func environment() TemplateVariables {
+	environment := os.Environ()
+	variables := make(TemplateVariables, len(environment))
+	for _, variable := range environment {
+		pair := strings.Split(variable, "=")
+		variables[pair[0]] = pair[1]
+	}
+	return variables
+}
+
 // New creates a new JWTPlugin.
 func New(_ context.Context, next http.Handler, config *Config, name string) (http.Handler, error) {
 	log.SetFlags(0)
 
-	secret, err := SetupSecret(config.Secret)
+	secret, err := setupSecret(config.Secret)
 	if err != nil {
 		return nil, err
 	}
@@ -137,6 +147,7 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		headerMap:            config.HeaderMap,
 		forwardToken:         config.ForwardToken,
 		freshness:            config.Freshness,
+		environment:          environment(),
 	}
 
 	for _, issuer := range plugin.issuers {
@@ -155,7 +166,7 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 // ServeHTTP is the middleware entry point.
 func (plugin *JWTPlugin) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	variables := plugin.createTemplateVariables(request)
-	status, err := plugin.Validate(request, variables)
+	status, err := plugin.validate(request, variables)
 	if err != nil {
 		if plugin.redirectUnauthorized != nil {
 			// Interactive clients should be redirected to the login page or unauthorized page.
@@ -181,8 +192,8 @@ func (plugin *JWTPlugin) ServeHTTP(response http.ResponseWriter, request *http.R
 	plugin.next.ServeHTTP(response, request)
 }
 
-// Validate validates the request and returns the HTTP status code or an error if the request is not valid. It also sets any headers that should be forwarded to the backend.
-func (plugin *JWTPlugin) Validate(request *http.Request, variables *TemplateVariables) (int, error) {
+// validate validates the request and returns the HTTP status code or an error if the request is not valid. It also sets any headers that should be forwarded to the backend.
+func (plugin *JWTPlugin) validate(request *http.Request, variables *TemplateVariables) (int, error) {
 	token := plugin.extractToken(request)
 	if token == "" {
 		// No token provided
@@ -191,7 +202,7 @@ func (plugin *JWTPlugin) Validate(request *http.Request, variables *TemplateVari
 		}
 	} else {
 		// Token provided
-		token, err := plugin.parser.Parse(token, plugin.GetKey)
+		token, err := plugin.parser.Parse(token, plugin.getKey)
 		if err != nil {
 			return http.StatusUnauthorized, err
 		}
@@ -200,10 +211,10 @@ func (plugin *JWTPlugin) Validate(request *http.Request, variables *TemplateVari
 
 		// Validate claims
 		for claim, requirements := range plugin.require {
-			result := plugin.ValidateClaim(claim, claims, requirements, variables)
+			result := plugin.validateClaim(claim, claims, requirements, variables)
 			if !result {
 				err := fmt.Errorf("claim is not valid: %s", claim)
-				// If the token is older than out freshness window, we allow that reauthorization might fix it
+				// If the token is older than our freshness window, we allow that reauthorization might fix it
 				iat, ok := claims["iat"]
 				if ok && plugin.freshness != 0 && time.Now().Unix()-int64(iat.(float64)) > plugin.freshness {
 					return http.StatusUnauthorized, err
@@ -226,7 +237,7 @@ func (plugin *JWTPlugin) Validate(request *http.Request, variables *TemplateVari
 }
 
 // Validate checks value against the requirement, calling ourself recursively for object and array values.
-// variables is required in the interface and passed on recusrively by ultimately ignored bu ValueRequirement
+// variables is required in the interface and passed on recusrively but ultimately ignored by ValueRequirement
 // having been already interpolated by TemplateRequirement
 func (requirement ValueRequirement) Validate(value interface{}, variables *TemplateVariables) bool {
 	switch value := value.(type) {
@@ -331,7 +342,7 @@ func createRequirement(value interface{}, nested interface{}) Requirement {
 	case string:
 		if strings.Contains(value, "{{") && strings.Contains(value, "}}") {
 			return TemplateRequirement{
-				template: template.Must(template.New("template").Parse(value)),
+				template: template.Must(template.New("template").Option("missingkey=error").Parse(value)),
 				nested:   nested,
 			}
 		}
@@ -339,8 +350,8 @@ func createRequirement(value interface{}, nested interface{}) Requirement {
 	return ValueRequirement{value: value, nested: nested}
 }
 
-// ValidateClaim
-func (plugin *JWTPlugin) ValidateClaim(claim string, claims jwt.MapClaims, requirements []Requirement, variables *TemplateVariables) bool {
+// validateClaim
+func (plugin *JWTPlugin) validateClaim(claim string, claims jwt.MapClaims, requirements []Requirement, variables *TemplateVariables) bool {
 	value, ok := claims[claim]
 	if ok {
 		for _, requirement := range requirements {
@@ -352,8 +363,8 @@ func (plugin *JWTPlugin) ValidateClaim(claim string, claims jwt.MapClaims, requi
 	return false
 }
 
-// GetKey gets the key for the given key ID from the plugin's key cache. If the key isn't present and the iss is valid according to the plugin's configuration, all keys for the iss are fetched and the key is looked up again.
-func (plugin *JWTPlugin) GetKey(token *jwt.Token) (interface{}, error) {
+// getKey gets the key for the given key ID from the plugin's key cache. If the key isn't present and the iss is valid according to the plugin's configuration, all keys for the iss are fetched and the key is looked up again.
+func (plugin *JWTPlugin) getKey(token *jwt.Token) (interface{}, error) {
 	kid, ok := token.Header["kid"]
 	if ok {
 		for fetched := false; ; fetched = true {
@@ -372,7 +383,7 @@ func (plugin *JWTPlugin) GetKey(token *jwt.Token) (interface{}, error) {
 			issuer, ok := token.Claims.(jwt.MapClaims)["iss"].(string)
 			if ok {
 				issuer = canonicalizeDomain(issuer)
-				if plugin.IsValidIssuer(issuer) {
+				if plugin.isValidIssuer(issuer) {
 					plugin.lock.Lock()
 					if _, ok := plugin.keys[kid.(string)]; !ok {
 						err := plugin.fetchKeys(issuer) // issue has trailing slash
@@ -396,8 +407,8 @@ func (plugin *JWTPlugin) GetKey(token *jwt.Token) (interface{}, error) {
 	return plugin.secret, nil
 }
 
-// IsValidIssuer returns true if the issuer is allowed by the Issers configuration.
-func (plugin *JWTPlugin) IsValidIssuer(issuer string) bool {
+// isValidIssuer returns true if the issuer is allowed by the Issers configuration.
+func (plugin *JWTPlugin) isValidIssuer(issuer string) bool {
 	for _, allowed := range plugin.issuers {
 		if fnmatch.Match(allowed, issuer, 0) {
 			return true
@@ -452,32 +463,35 @@ func canonicalizeDomains(domains []string) []string {
 	return domains
 }
 
-// createTemplate creates a template from the given redirect string, or nil if no specified.
+// createTemplate creates a template from the given string, or nil if not specified.
 func createTemplate(text string) *template.Template {
 	if text == "" {
 		return nil
 	}
-	return template.Must(template.New("template").Parse(text))
+	return template.Must(template.New("template").Option("missingkey=error").Parse(text))
 }
 
-// createTemplateVariables creates a template data object for the given request.
+// createTemplateVariables creates a template data map for the given request.
+// We start with a clone of our environment variables and add the the per-request variables.
+// The purpose of environment variables is to allow a easier way to set a configurable but then fixed value for a claim
+// requirement in the configuration file (as rewriting the configuration file is harder than setting environment variables).
 func (plugin *JWTPlugin) createTemplateVariables(request *http.Request) *TemplateVariables {
-	var variables TemplateVariables
+	variables := maps.Clone(plugin.environment)
 
 	if request.URL.Host != "" {
-		variables.URL = request.URL.String()
-		variables.Scheme = request.URL.Scheme
-		variables.Host = request.URL.Host
-		variables.Path = request.URL.Path
+		variables["Scheme"] = request.URL.Scheme
+		variables["Host"] = request.URL.Host
+		variables["Path"] = request.URL.Path
+		variables["URL"] = request.URL.String()
 	} else {
-		// (In at lease some situations) Traefik set only the path in the request.URL, so we need to reconstruct it
-		variables.Scheme = request.Header.Get("X-Forwarded-Proto")
-		if variables.Scheme == "" {
-			variables.Scheme = "https"
+		// (In at lease some situations) Traefik sets only the path in the request.URL, so we need to reconstruct it
+		variables["Scheme"] = request.Header.Get("X-Forwarded-Proto")
+		if variables["Scheme"] == "" {
+			variables["Scheme"] = "https"
 		}
-		variables.Host = request.Host
-		variables.Path = request.URL.RequestURI()
-		variables.URL = fmt.Sprintf("%s://%s%s", variables.Scheme, variables.Host, variables.Path)
+		variables["Host"] = request.Host
+		variables["Path"] = request.URL.RequestURI()
+		variables["URL"] = fmt.Sprintf("%s://%s%s", variables["Scheme"], variables["Host"], variables["Path"])
 	}
 
 	return &variables
