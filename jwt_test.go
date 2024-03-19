@@ -872,7 +872,7 @@ func TestServeHTTP(tester *testing.T) {
 			Expect: http.StatusOK,
 			Config: `
 				issuers:
-				    - "https://127.0.0.1/"
+					- "https://127.0.0.1/"
 				InsecureSkipVerify:
 					- "127.0.0.1"
 				require:
