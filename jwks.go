@@ -41,8 +41,8 @@ type JSONWebKeySet struct {
 	Keys []JSONWebKey `json:"keys"`
 }
 
-func FetchJWKS(url string) (map[string]interface{}, error) {
-	response, err := http.Get(url)
+func FetchJWKS(url string, client *http.Client) (map[string]interface{}, error) {
+	response, err := client.Get(url)
 	if err != nil {
 		return nil, err
 	}

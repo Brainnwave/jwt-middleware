@@ -10,8 +10,8 @@ type OpenIDConfiguration struct {
 	JWKSURI string `json:"jwks_uri"`
 }
 
-func FetchOpenIDConfiguration(url string) (*OpenIDConfiguration, error) {
-	response, err := http.Get(url)
+func FetchOpenIDConfiguration(url string, client *http.Client) (*OpenIDConfiguration, error) {
+	response, err := client.Get(url)
 	if err != nil {
 		return nil, err
 	}
