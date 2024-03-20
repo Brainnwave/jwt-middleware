@@ -867,6 +867,21 @@ func TestServeHTTP(tester *testing.T) {
 			Method:     jwt.SigningMethodHS256,
 			CookieName: "Authorization",
 		},
+		{
+			Name:   "InsecureSkipVerify",
+			Expect: http.StatusOK,
+			Config: `
+				issuers:
+					- "https://127.0.0.1/"
+				InsecureSkipVerify:
+					- "127.0.0.1"
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodES256,
+			HeaderName: "Authorization",
+			//			Actions:    map[string]string{"noAddIsser": "yes"},
+		},
 	}
 
 	for _, test := range tests {
@@ -1240,6 +1255,31 @@ func TestCanonicalizeDomains(tester *testing.T) {
 		tester.Run(test.Name, func(tester *testing.T) {
 			result := canonicalizeDomains(test.domains)
 			if !reflect.DeepEqual(result, test.expected) {
+				tester.Errorf("got: %s expected: %s", result, test.expected)
+			}
+		})
+	}
+}
+
+func TestHostname(tester *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"https://example.com", "example.com"},
+		{"https://example.com/", "example.com"},
+		{"https://test.example.com/", "test.example.com"},
+		{"https://example.com:8080", "example.com"},
+		{"https://example.com:8080/", "example.com"},
+		{"https://example.com:8080/path", "example.com"},
+		{"https://example.com:8080/path/", "example.com"},
+		{"https://example.com:8080/path?query", "example.com"},
+		{"https://example.\x00com", ""},
+	}
+	for _, test := range tests {
+		tester.Run(test.input, func(tester *testing.T) {
+			result := hostname(test.input)
+			if result != test.expected {
 				tester.Errorf("got: %s expected: %s", result, test.expected)
 			}
 		})

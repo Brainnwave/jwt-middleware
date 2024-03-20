@@ -3,10 +3,12 @@ package jwt_middleware
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"html/template"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"reflect"
 	"strings"
@@ -21,6 +23,7 @@ import (
 type Config struct {
 	ValidMethods         []string               `json:"validMethods,omitempty"`
 	Issuers              []string               `json:"issuers,omitempty"`
+	InsecureSkipVerify   []string               `json:"insecureSkipVerify,omitempty"`
 	Secret               string                 `json:"secret,omitempty"`
 	Require              map[string]interface{} `json:"require,omitempty"`
 	Optional             bool                   `json:"optional,omitempty"`
@@ -41,6 +44,8 @@ type JWTPlugin struct {
 	parser               *jwt.Parser
 	secret               interface{}
 	issuers              []string
+	clients              map[string]*http.Client
+	defaultClient        *http.Client
 	require              map[string][]Requirement
 	lock                 sync.RWMutex
 	keys                 map[string]interface{}
@@ -134,6 +139,8 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		parser:               jwt.NewParser(jwt.WithValidMethods(config.ValidMethods)),
 		secret:               secret,
 		issuers:              canonicalizeDomains(config.Issuers),
+		clients:              createClients(config.InsecureSkipVerify),
+		defaultClient:        &http.Client{},
 		require:              convertRequire(config.Require),
 		keys:                 make(map[string]interface{}),
 		issuerKeys:           make(map[string]map[string]interface{}),
@@ -419,16 +426,36 @@ func (plugin *JWTPlugin) isValidIssuer(issuer string) bool {
 	return false
 }
 
+// hostname returns the hostname for the given URL.
+func hostname(address string) string {
+	parsed, err := url.Parse(address)
+	if err != nil {
+		log.Printf("failed to parse url %s: %v", address, err)
+		return ""
+	}
+	return parsed.Hostname()
+}
+
+// clientForURL returns the http.Client for the given URL, or the default client if no specific client is configured.
+func (plugin *JWTPlugin) clientForURL(address string) *http.Client {
+	client, ok := plugin.clients[hostname(address)]
+	if ok {
+		return client
+	} else {
+		return plugin.defaultClient
+	}
+}
+
 // fetchKeys fetches the keys from well-known jwks endpoint for the given issuer and adds them to the key map.
 func (plugin *JWTPlugin) fetchKeys(issuer string) error {
 	configURL := issuer + ".well-known/openid-configuration" // issuer has trailing slash
-	config, err := FetchOpenIDConfiguration(configURL)
+	config, err := FetchOpenIDConfiguration(configURL, plugin.clientForURL(configURL))
 	if err != nil {
 		return err
 	}
 	log.Printf("fetched openid-configuration from url:%s", configURL)
 	url := config.JWKSURI
-	jwks, err := FetchJWKS(url)
+	jwks, err := FetchJWKS(url, plugin.clientForURL(url))
 	if err != nil {
 		return err
 	}
@@ -463,6 +490,22 @@ func canonicalizeDomains(domains []string) []string {
 		domains[index] = canonicalizeDomain(domain)
 	}
 	return domains
+}
+
+// createClients reads a list of domains in the InsecureSkipVerify configuration and creates a map of domains to http.Client with InsecureSkipVerify set.
+func createClients(insecureSkipVerify []string) map[string]*http.Client {
+	// Create a single client with InsecureSkipVerify set
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	client := &http.Client{Transport: transport}
+
+	// Use it for all issuers in the InsecureSkipVerify configuration
+	clients := make(map[string]*http.Client, len(insecureSkipVerify))
+	for _, issuer := range insecureSkipVerify {
+		clients[issuer] = client
+	}
+	return clients
 }
 
 // createTemplate creates a template from the given string, or nil if not specified.
