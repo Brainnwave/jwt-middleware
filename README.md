@@ -155,13 +155,34 @@ require:
 ```yaml
 http:
   middlewares:
-    secure-interactive:
+    secure-web:
       plugin:
         jwt:
           issuers:
             - https://auth.example.com
           require:
             aud: test.example.com
+          redirectUnauthorized: "https://example.com/login?return_to={{`{{.URL}}`}}"
+          redirectForbidden: "https://example.com/unauthorized"
+```
+
+#### Configuring API and interactive endpoints together effectively
+```yaml
+http:
+  middlewares:
+    secure-api:
+      plugin:
+        jwt:
+          &secure-api
+          issuers:
+            - https://auth.example.com
+          require:
+            aud: test.example.com
+
+    secure-web:
+      plugin:
+        jwt:
+          <<: *secure-api
           redirectUnauthorized: "https://example.com/login?return_to={{`{{.URL}}`}}"
           redirectForbidden: "https://example.com/unauthorized"
 ```
