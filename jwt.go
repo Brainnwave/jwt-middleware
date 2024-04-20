@@ -157,12 +157,11 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 	}
 
 	for _, issuer := range plugin.issuers {
-		if strings.Contains(issuer, "*") {
-			continue
-		}
-		err := plugin.fetchKeys(issuer)
-		if err != nil {
-			log.Printf("failed to prefetch keys for %s: %v", issuer, err)
+		if !strings.Contains(issuer, "*") {
+			err := plugin.fetchKeys(issuer)
+			if err != nil {
+				log.Printf("failed to prefetch keys for %s: %v", issuer, err)
+			}
 		}
 	}
 
@@ -215,10 +214,9 @@ func (plugin *JWTPlugin) validate(request *http.Request, variables *TemplateVari
 
 		claims := token.Claims.(jwt.MapClaims)
 
-		// Validate claims
+		// Validate that claims match - AND
 		for claim, requirements := range plugin.require {
-			result := plugin.validateClaim(claim, claims, requirements, variables)
-			if !result {
+			if !plugin.validateClaim(claim, claims, requirements, variables) {
 				err := fmt.Errorf("claim is not valid: %s", claim)
 				// If the token is older than our freshness window, we allow that reauthorization might fix it
 				iat, ok := claims["iat"]
@@ -356,7 +354,7 @@ func createRequirement(value interface{}, nested interface{}) Requirement {
 	return ValueRequirement{value: value, nested: nested}
 }
 
-// validateClaim
+// validateClaim valideates a single claim against the requirement(s) for that claim (any match with satisfy - OR).
 func (plugin *JWTPlugin) validateClaim(claim string, claims jwt.MapClaims, requirements []Requirement, variables *TemplateVariables) bool {
 	value, ok := claims[claim]
 	if ok {
