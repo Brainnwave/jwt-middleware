@@ -118,7 +118,6 @@ require:
 ```
 
 #### Wildcard Claim
-Will suceed when called on https://customer.example.com/example
 ```yaml
 require:
   aud: "customer.example.com"
