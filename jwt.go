@@ -372,7 +372,8 @@ func (plugin *JWTPlugin) getKey(token *jwt.Token) (interface{}, error) {
 	err := fmt.Errorf("no secret configured")
 	kid, ok := token.Header["kid"]
 	if ok {
-		for fetched := false; ; fetched = true {
+		fetched := false
+		for looped := false; ; looped = true {
 			plugin.lock.RLock()
 			key, ok := plugin.keys[kid.(string)]
 			plugin.lock.RUnlock()
@@ -380,8 +381,10 @@ func (plugin *JWTPlugin) getKey(token *jwt.Token) (interface{}, error) {
 				return key, nil
 			}
 
-			if fetched {
-				log.Printf("key %s: fetched and no match", kid)
+			if looped {
+				if fetched {
+					log.Printf("key %s: fetched and no match", kid)
+				}
 				break
 			}
 
@@ -392,7 +395,9 @@ func (plugin *JWTPlugin) getKey(token *jwt.Token) (interface{}, error) {
 					plugin.lock.Lock()
 					if _, ok := plugin.keys[kid.(string)]; !ok {
 						err = plugin.fetchKeys(issuer)
-						if err != nil {
+						if err == nil {
+							fetched = true
+						} else {
 							log.Printf("failed to fetch keys for %s: %v", issuer, err)
 						}
 					}
