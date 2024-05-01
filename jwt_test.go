@@ -42,7 +42,6 @@ type Test struct {
 	HeaderName        string
 	ParameterName     string
 	BearerPrefix      bool
-	HeaderMap         map[string]string
 	Cookies           map[string]string
 	Claims            string
 	ClaimsMap         jwt.MapClaims
@@ -845,7 +844,6 @@ func TestServeHTTP(tester *testing.T) {
 				headerMap:
 					X-Id: user
 				forwardToken: false`,
-			HeaderMap:  map[string]string{"X-Id": "user"},
 			Claims:     `{"aud": "test", "user": "1234"}`,
 			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
