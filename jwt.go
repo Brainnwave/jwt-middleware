@@ -370,43 +370,45 @@ func (plugin *JWTPlugin) validateClaim(claim string, claims jwt.MapClaims, requi
 // getKey gets the key for the given key ID from the plugin's key cache. If the key isn't present and the iss is valid according to the plugin's configuration, all keys for the iss are fetched and the key is looked up again.
 func (plugin *JWTPlugin) getKey(token *jwt.Token) (interface{}, error) {
 	err := fmt.Errorf("no secret configured")
-	kid, ok := token.Header["kid"]
-	if ok {
-		fetched := false
-		for looped := false; ; looped = true {
-			plugin.lock.RLock()
-			key, ok := plugin.keys[kid.(string)]
-			plugin.lock.RUnlock()
-			if ok {
-				return key, nil
-			}
-
-			if looped {
-				if fetched {
-					log.Printf("key %s: fetched and no match", kid)
+	if len(plugin.issuers) > 0 {
+		kid, ok := token.Header["kid"]
+		if ok {
+			fetched := false
+			for looped := false; ; looped = true {
+				plugin.lock.RLock()
+				key, ok := plugin.keys[kid.(string)]
+				plugin.lock.RUnlock()
+				if ok {
+					return key, nil
 				}
-				break
-			}
 
-			issuer, ok := token.Claims.(jwt.MapClaims)["iss"].(string)
-			if ok {
-				issuer = canonicalizeDomain(issuer)
-				if plugin.isValidIssuer(issuer) {
-					plugin.lock.Lock()
-					if _, ok := plugin.keys[kid.(string)]; !ok {
-						err = plugin.fetchKeys(issuer)
-						if err == nil {
-							fetched = true
-						} else {
-							log.Printf("failed to fetch keys for %s: %v", issuer, err)
-						}
+				if looped {
+					if fetched {
+						log.Printf("key %s: fetched and no match", kid)
 					}
-					plugin.lock.Unlock()
-				} else {
-					err = fmt.Errorf("issuer %s is not valid", issuer)
+					break
 				}
-			} else {
-				break
+
+				issuer, ok := token.Claims.(jwt.MapClaims)["iss"].(string)
+				if ok {
+					issuer = canonicalizeDomain(issuer)
+					if plugin.isValidIssuer(issuer) {
+						plugin.lock.Lock()
+						if _, ok := plugin.keys[kid.(string)]; !ok {
+							err = plugin.fetchKeys(issuer)
+							if err == nil {
+								fetched = true
+							} else {
+								log.Printf("failed to fetch keys for %s: %v", issuer, err)
+							}
+						}
+						plugin.lock.Unlock()
+					} else {
+						err = fmt.Errorf("issuer %s is not valid", issuer)
+					}
+				} else {
+					break
+				}
 			}
 		}
 	}
