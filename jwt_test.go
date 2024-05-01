@@ -27,26 +27,26 @@ import (
 )
 
 type Test struct {
-	Name              string
-	Result            bool
-	Expect            int
-	ExpectPluginError string
-	ExpectRedirect    string
-	ExpectHeaders     map[string]string
-	ExpectCookies     map[string]string
-	Config            string
-	URL               string
-	Keys              jose.JSONWebKeySet
-	Method            jwt.SigningMethod
-	CookieName        string
-	HeaderName        string
-	ParameterName     string
-	BearerPrefix      bool
-	Cookies           map[string]string
-	Claims            string
-	ClaimsMap         jwt.MapClaims
-	Actions           map[string]string
-	Environment       map[string]string
+	Name              string             // The name of the test
+	Allowed           bool               // Whether the request was actually allowed through by the plugin (set by next)
+	Expect            int                // Response status code expected
+	ExpectPluginError string             // If set, expect this error message from plugin
+	ExpectRedirect    string             // Full URL to expect redirection to
+	ExpectHeaders     map[string]string  // Headers to expect in the downstream request as passed to next
+	ExpectCookies     map[string]string  // Cookies to expect in the downstream request as passed to next
+	Config            string             // The dynamic yml configuration to pass to the plugin
+	URL               string             // Used to pass the URL from the server to the handlers (which must exist before the server)
+	Keys              jose.JSONWebKeySet // JWKS used in test server
+	Method            jwt.SigningMethod  // Signing method for the token
+	CookieName        string             // The name of the cookie to use
+	HeaderName        string             // The name of the header to use
+	ParameterName     string             // The name of the parameter to use
+	BearerPrefix      bool               // Whether to use the Bearer prefix or not
+	Cookies           map[string]string  // Cookies to set in the incomming request
+	Claims            string             // The claims to use in the token as a JSON string
+	ClaimsMap         jwt.MapClaims      // claims mapped from `Claims`
+	Actions           map[string]string  // Map of "actions" to take during the test, some are just flags and some have values
+	Environment       map[string]string  // Map of environment variables to simulate for the test
 }
 
 func TestServeHTTP(tester *testing.T) {
@@ -904,8 +904,9 @@ func TestServeHTTP(tester *testing.T) {
 				tester.Fatal("incorrect result code: got:", response.Code, "expected:", test.Expect, "body:", response.Body.String())
 			}
 
-			if test.Result != (test.Expect == http.StatusOK) {
-				tester.Fatal("incorrect allowed/denied: was allowed:", test.Result, "should allow:", test.Expect == http.StatusOK)
+			expectAllow := test.Expect == http.StatusOK
+			if test.Allowed != expectAllow {
+				tester.Fatal("incorrect allowed/denied: was allowed:", test.Allowed, "should allow:", expectAllow)
 			}
 
 			if response.Code == http.StatusFound && test.ExpectRedirect != "" {
@@ -1076,7 +1077,7 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 	}
 
 	// Create the plugin
-	next := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) { test.Result = true })
+	next := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) { test.Allowed = true })
 	plugin, err := New(context, next, config, "test-jwt-middleware")
 	if err != nil {
 		if err.Error() == test.ExpectPluginError {
