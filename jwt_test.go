@@ -38,6 +38,8 @@ type Test struct {
 	URL               string             // Used to pass the URL from the server to the handlers (which must exist before the server)
 	Keys              jose.JSONWebKeySet // JWKS used in test server
 	Method            jwt.SigningMethod  // Signing method for the token
+	Private           string             // Private key to use to sign the token rather than generating one
+	Kid               string             // Kid for private key to use to sign the token rather than generating one
 	CookieName        string             // The name of the cookie to use
 	HeaderName        string             // The name of the header to use
 	ParameterName     string             // The name of the parameter to use
@@ -652,6 +654,54 @@ func TestServeHTTP(tester *testing.T) {
 			CookieName: "Authorization",
 		},
 		{
+			Name:   "EC fixed secrets",
+			Expect: http.StatusOK,
+			Config: `
+				secrets:
+					43263adb454e2217b26212b925498a139438912d: |
+						-----BEGIN EC PUBLIC KEY-----
+						MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEE7gFCo/g2PQmC3i5kIqVgCCzr2D1
+						nbCeipqfvK1rkqmKfhb7rlVehfC7ITUAy8NIvQ/AsXClvgHDv55BfOoL6w==
+						-----END EC PUBLIC KEY-----
+				require:
+					aud: test`,
+			Claims: `{"aud": "test"}`,
+			Method: jwt.SigningMethodES256,
+			Private: `
+				-----BEGIN EC PRIVATE KEY-----
+				MHcCAQEEIOGYoXIkNQh/7WBgOwZ+epQFMdkgGcdHwLQFL69oYEodoAoGCCqGSM49
+				AwEHoUQDQgAEE7gFCo/g2PQmC3i5kIqVgCCzr2D1nbCeipqfvK1rkqmKfhb7rlVe
+				hfC7ITUAy8NIvQ/AsXClvgHDv55BfOoL6w==
+				-----END EC PRIVATE KEY-----`,
+			Kid:        "43263adb454e2217b26212b925498a139438912d",
+			CookieName: "Authorization",
+		},
+		{
+			Name:              "bad fixed secrets",
+			ExpectPluginError: "kid b6a5717df9dc13c9b15aab32dc811fd38144d43c: invalid key: Key must be a PEM encoded PKCS1 or PKCS8 key",
+			Config: `
+				secrets:
+				  b6a5717df9dc13c9b15aab32dc811fd38144d43c: |
+				    -----BEGIN RSA PUBLIC KEY 
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodRS512,
+			CookieName: "Authorization",
+		},
+		{
+			Name:              "empty fixed secrets",
+			ExpectPluginError: "kid b6a5717df9dc13c9b15aab32dc811fd38144d43c: invalid key: Key is empty",
+			Config: `
+				secrets:
+				  b6a5717df9dc13c9b15aab32dc811fd38144d43c: ""
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodRS512,
+			CookieName: "Authorization",
+		},
+		{
 			Name:   "unknown issuer",
 			Expect: http.StatusUnauthorized,
 			Config: `
@@ -1154,68 +1204,106 @@ func jsonActions(actions map[string]string, keys []byte) ([]byte, error) {
 	return keys, nil
 }
 
-// createTokenAndSaveKey creates a key, then a token and adds it to the key set, then token and keys for the test.
+// createTokenAndSaveKey creates a token, a key pair as needed, signs the token and saves the key in the test.
 func createTokenAndSaveKey(test *Test, config *Config) string {
 	method := test.Method
 	if method == nil {
 		return ""
 	}
+
+	// Create a token from the claims
 	token := jwt.NewWithClaims(method, test.ClaimsMap)
+
+	// Generate or use a key pair based on the method and test mode
 	var private interface{}
 	var public interface{}
 	var publicPEM string
 	switch method {
 	case jwt.SigningMethodHS256, jwt.SigningMethodHS384, jwt.SigningMethodHS512:
+		// HMAC - use the provided key from the config Secret.
 		if config.Secret == "" {
-			panic(fmt.Errorf("secret is required for %s", method.Alg()))
+			panic(fmt.Errorf("Secret is required for %s", method.Alg()))
 		}
 		private = []byte(config.Secret)
 	case jwt.SigningMethodRS256, jwt.SigningMethodRS384, jwt.SigningMethodRS512:
-		secret, err := rsa.GenerateKey(rand.Reader, 2048)
-		if err != nil {
-			panic(err)
+		// RSA
+		if test.Private == "" {
+			// Generate a test RSA key pair
+			secret, err := rsa.GenerateKey(rand.Reader, 2048)
+			if err != nil {
+				panic(err)
+			}
+			private = secret
+			public = &secret.PublicKey
+			publicPEM = string(pem.EncodeToMemory(&pem.Block{
+				Type:  "RSA PUBLIC KEY",
+				Bytes: x509.MarshalPKCS1PublicKey(&secret.PublicKey),
+			}))
+		} else {
+			// Use the provided private key
+			secret, err := jwt.ParseRSAPrivateKeyFromPEM([]byte(trimLines(test.Private)))
+			if err != nil {
+				panic(err)
+			}
+			private = secret
 		}
-		private = secret
-		public = &secret.PublicKey
-		publicPEM = string(pem.EncodeToMemory(&pem.Block{
-			Type:  "RSA PUBLIC KEY",
-			Bytes: x509.MarshalPKCS1PublicKey(&secret.PublicKey),
-		}))
 	case jwt.SigningMethodES256, jwt.SigningMethodES384, jwt.SigningMethodES512:
-		var curve elliptic.Curve
-		switch method {
-		case jwt.SigningMethodES256:
-			curve = elliptic.P256()
-		case jwt.SigningMethodES384:
-			curve = elliptic.P384()
-		case jwt.SigningMethodES512:
-			curve = elliptic.P521()
+		// ECDSA
+		if test.Private == "" {
+			// Generate a test EC key pair
+			var curve elliptic.Curve
+			switch method {
+			case jwt.SigningMethodES256:
+				curve = elliptic.P256()
+			case jwt.SigningMethodES384:
+				curve = elliptic.P384()
+			case jwt.SigningMethodES512:
+				curve = elliptic.P521()
+			}
+			secret, err := ecdsa.GenerateKey(curve, rand.Reader)
+			if err != nil {
+				panic(err)
+			}
+			private = secret
+			public = &secret.PublicKey
+			der, err := x509.MarshalPKIXPublicKey(&secret.PublicKey)
+			if err != nil {
+				panic(err)
+			}
+			publicPEM = string(pem.EncodeToMemory(&pem.Block{
+				Type:  "PUBLIC KEY",
+				Bytes: der,
+			}))
+		} else {
+			// Use the provided private key
+			secret, err := jwt.ParseECPrivateKeyFromPEM([]byte(trimLines(test.Private)))
+			if err != nil {
+				panic(err)
+			}
+			private = secret
 		}
-		secret, err := ecdsa.GenerateKey(curve, rand.Reader)
-		if err != nil {
-			panic(err)
-		}
-		private = secret
-		public = &secret.PublicKey
-		der, err := x509.MarshalPKIXPublicKey(&secret.PublicKey)
-		if err != nil {
-			panic(err)
-		}
-		publicPEM = string(pem.EncodeToMemory(&pem.Block{
-			Type:  "PUBLIC KEY",
-			Bytes: der,
-		}))
 	default:
 		panic("Unsupported signing method")
 	}
 
+	// Choose how to use the public key and/or kid based on the test type
 	if test.Actions["useFixedSecret"] == "yes" {
+		// Take the generated public key to the fixed Secret
 		config.Secret = publicPEM
-	} else if method != jwt.SigningMethodHS256 {
+	} else if public != nil {
+		// Add the public key to the key set and set the kid in the token
 		jwk, kid := convertKeyToJWKWithKID(public, method.Alg())
 		test.Keys.Keys = append(test.Keys.Keys, jwk)
 		token.Header["kid"] = kid
+	} else if test.Private != "" {
+		// Using a provided private key (and coresponding public key in the test config) so just set the kid
+		if test.Kid == "" {
+			panic("Kid is required for test with Private set")
+		}
+		token.Header["kid"] = test.Kid
 	}
+
+	// Sign with the private key and return the token
 	signed, err := token.SignedString(private)
 	if err != nil {
 		panic(err)
@@ -1317,4 +1405,13 @@ func BenchmarkServeHTTP(benchmark *testing.B) {
 		// Run the request
 		plugin.ServeHTTP(response, request)
 	}
+}
+
+// trimLines trims leading and trailing spaces from all lines in a string
+func trimLines(text string) string {
+	lines := strings.Split(text, "\n")
+	for index, line := range lines {
+		lines[index] = strings.TrimSpace(line)
+	}
+	return strings.Join(lines, "\n")
 }
