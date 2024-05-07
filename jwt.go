@@ -169,6 +169,7 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		}
 		plugin.keys[kid] = secret
 	}
+	plugin.issuerKeys["internal"] = internalIssuerKeys(config.Secrets)
 
 	// Prefetch keys for all issuers (that don't contain a wildcard) unless skipPrefetch was set
 	if !config.SkipPrefetch {
@@ -183,6 +184,15 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 	}
 
 	return &plugin, nil
+}
+
+// internalIssuerKeys returns a dummy keyset for the keys in config.Secrets
+func internalIssuerKeys(secrets map[string]string) map[string]interface{} {
+	keys := make(map[string]interface{}, len(secrets))
+	for kid := range secrets {
+		keys[kid] = nil
+	}
+	return keys
 }
 
 // ServeHTTP is the middleware entry point.
@@ -476,6 +486,7 @@ func (plugin *JWTPlugin) fetchKeys(issuer string) error {
 		return err
 	}
 	log.Printf("fetched openid-configuration from url:%s", configURL)
+
 	url := config.JWKSURI
 	jwks, err := FetchJWKS(url, plugin.clientForURL(url))
 	if err != nil {
@@ -486,16 +497,30 @@ func (plugin *JWTPlugin) fetchKeys(issuer string) error {
 		plugin.keys[keyID] = key
 	}
 
-	previous := plugin.issuerKeys[url]
-	for keyID := range previous {
-		if _, ok := jwks[keyID]; !ok {
-			log.Printf("key:%s dropped by url:%s", keyID, url)
+	plugin.issuerKeys[url] = jwks
+	plugin.purgeKeys()
+
+	return nil
+}
+
+// isIssuedKey returns true if the key exists in the issuerKeys map
+func (plugin *JWTPlugin) isIssuedKey(keyID string) bool {
+	for _, issuerKeys := range plugin.issuerKeys {
+		if _, ok := issuerKeys[keyID]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// purgeKeys purges all keys from plugin.keys that are not in the issuerKeys map.
+func (plugin *JWTPlugin) purgeKeys() {
+	for keyID := range plugin.keys {
+		if !plugin.isIssuedKey(keyID) {
+			log.Printf("key:%s dropped", keyID)
 			delete(plugin.keys, keyID)
 		}
 	}
-	plugin.issuerKeys[url] = jwks
-
-	return nil
 }
 
 // canonicalizeDomain adds a trailing slash to the domain
