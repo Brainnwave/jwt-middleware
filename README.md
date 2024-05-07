@@ -18,7 +18,7 @@ experimental:
   plugins:
     jwt:
       moduleName: github.com/Brainnwave/jwt-middleware
-      version: v1.1.12
+      version: v1.1.13
 ```
 1b. or with command-line options:
 
@@ -26,7 +26,7 @@ experimental:
 command:
   ...
   - "--experimental.plugins.jwt.modulename=github.com/Brainnwave/jwt-middleware"
-  - "--experimental.plugins.jwt.version=v1.1.12"
+  - "--experimental.plugins.jwt.version=v1.1.13"
 ```
 
 2) Configure and activate the plugin as a middleware in your dynamic traefik config:
@@ -54,8 +54,10 @@ The plugin supports the following configuration options.
 
 Name | Description
 ---- | ----
-`issuers` | A list of trusted issuers to fetch keys (JWKs) from. Keys will be prefetched from these issuers on startup. If a presented token contains a `kid` that is not known and its `iss` claim matches one of the `issuers`, the plugin will refresh the keys for that issuer. On each fetch, any keys previously fetched from the issuer that are no longer retrieved will be removed from the plugin's cache. fnmatch-style wildcards are supported for `issuers` to accommodate some multitenancy scenarios (e.g. `https://*.example.com`). It is not recommended to use wildcard `issuers` unless you understand the implication that any webserver on your domain could be used to spoof a JWK endpoint and you have full confidence in your DNS security and what is running on all servers within the domain in question. 
+`issuers` | A list of trusted issuers to fetch keys (JWKs) from. Keys will be prefetched from these issuers on startup (unless `skipPrefetch` is set). If a presented token contains a `kid` that is not known and its `iss` claim matches one of the `issuers`, the plugin will refresh the keys for that issuer. On each fetch, any keys previously fetched from the issuer that are no longer retrieved will be removed from the plugin's cache. Keys are fully reference counted by `kid`: if they same `kid` is present from another provider (or from `secrets` below) it will not be removed from the cache until no longer referenced. fnmatch-style wildcards are supported for `issuers` to accommodate some multitenancy scenarios (e.g. `https://*.example.com`). It is not recommended to use wildcard `issuers` unless you understand the implication that any webserver on your domain could be used to spoof a JWK endpoint and you have full confidence in your DNS security and what is running on all servers within the domain in question. 
 `secret` | A shared HMAC secret or a fixed public key to use for signature validation. A fixed secret may be used in conjunction with `issuers` to combine static and dynamic keys. This can be useful when transitioning from earlier systems or for machine-to-machine tokens signed with internal keys. Note that if a dynamic key is not matched for a presented key, but a static secret is configured, the static secret will be tried as a fallback key. If this secret is not of the correct type for the presented key, an error such as `token signature is invalid: key is of invalid type` will be returned to the user, which may be confusing. 
+`secrets` | A map of `kid` -> `secret`. As `secret` above, these may be used in combination with `issuers`. Any secrets provided here will be preloaded into the plugin's cache. Any presented tokens with matching `kid`s will therefore not need have the key fetched from the issuer. This mechanism is preferred over a single anonymous `secret` when a `kid` is used, as it avoids the fallback type message described above.
+`skipPrefetch` | Don't prefetch keys from `issuers`. This is useful if all the expected secrets are provided in `secrets`, especially in situations where traefik or its services are frequently restarted, to save from hitting the issuer JWKS endpoint unnecessarily.
 `require` | A map of zero or more claims that must all be present and match against one or more values. If no claims are specified in `require`, all tokens that are validly signed by the trusted issuers or secrets will pass. If more than one claim is specified, each is required (i.e. an AND relationship exists for all the specified claims). For each claim, multiple values may be specified and the claim will be valid if any matches (i.e. an OR relationship exists for required values within a claim). fnmatch-style wildcards are optionally supported for claims in issued JWTs. If you do not wish to support wildcard claims, simply do not put such wildcards into the JWTs that you issue. See below for examples and the variables available with template interpolation.
 `headerMap` | A map in the form of header: claim. Headers will be added (or overwritten) to the forwarded HTTP request from the claim values in the token. If the claim is not present, no action for that value is taken (and any existing header will remain unchanged).
 `cookieName` | Name of the cookie to retrieve the token from if present. Default: `Authorization`. If token retrieval from cookies must be disabled for some reason, set to an empty string.  If `forwardAuth` is `false`, the cookie will be removed before forwarding to the backend.
@@ -194,10 +196,40 @@ http:
       plugin:
         jwt:
           secret: |
-            -----BEGIN PUBLIC KEY-----
-            MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEmHp6e95bmF2NqgziUMZP/+x8r2dH
-            m/UisMRtEhOY6vE92LCdFpyqtwYwPVryYexT0ITtQldD5O091QcuIOm6KQ==
-            -----END PUBLIC KEY-----
+            -----BEGIN EC PUBLIC KEY-----
+            MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEE7gFCo/g2PQmC3i5kIqVgCCzr2D1
+            nbCeipqfvK1rkqmKfhb7rlVehfC7ITUAy8NIvQ/AsXClvgHDv55BfOoL6w==
+            -----END EC PUBLIC KEY-----
+          require:
+            aud: test.example.com
+```
+
+#### Specifying some known public keys upfront without prefetching them
+```yaml
+http:
+  middlewares:
+    secure-interactive:
+      plugin:
+        jwt:
+          issuers:
+            - https://auth.example.com
+          skipPrefetch: true
+          secrets:
+            b5c252d9c851331f41ae99d90e0847f7da9b6568: |
+              -----BEGIN EC PUBLIC KEY-----
+              MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEE7gFCo/g2PQmC3i5kIqVgCCzr2D1
+              nbCeipqfvK1rkqmKfhb7rlVehfC7ITUAy8NIvQ/AsXClvgHDv55BfOoL6w==
+              -----END EC PUBLIC KEY-----
+            b6a5717df9dc13c9b15aab32dc811fd38144d43c: |
+              -----BEGIN RSA PUBLIC KEY-----
+              MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzAOwEhcoj+yqyJK0Czvu
+              COVoUdpaCYGeoeMB2gpclh5bHTqdfjrbko/tLpvkLKXliuWGwMMT5YC/WbhsWeAS
+              ak3FMXUNGhuMoM3SebygwFNpF/kBQLayPcrlP0JtwIDEEkpWpE8b0D1GwzwbU73T
+              Zedw0xrHMtH0YDbY5Q/G5/FW6wnZYOzLZdogOX0eSTlRy5T+DlYL6oDpdvqKKHGe
+              gdP4r2ZVZ3CjWBcx4mERJTriGwlDkoHs/Zpvv2T+uBRSWmRnxaI62r2Nr9DJIh47
+              DG7dq6bMdUOWOBRc9yBmgTF+K8/3JwDJo5JjCP9WfqAV8qtxA9g99mpbvAAqMGqa
+              0QIDAQAB
+              -----END RSA PUBLIC KEY-----
           require:
             aud: test.example.com
 ```
