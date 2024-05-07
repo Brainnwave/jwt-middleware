@@ -67,7 +67,7 @@ const (
 	invalidJSON        = "invalidJSON"
 	traefikURL         = "traefikURL"
 	yes                = "yes"
-	invalid            = "invalid"
+	invalid            = "invalid/dummy"
 )
 
 func TestServeHTTP(tester *testing.T) {
@@ -520,7 +520,7 @@ func TestServeHTTP(tester *testing.T) {
 			Claims:     `{"aud": "test"}`,
 			Method:     jwt.SigningMethodRS256,
 			HeaderName: "Authorization",
-			Actions:    map[string]string{"set:n": "dummy"},
+			Actions:    map[string]string{"set:n": invalid},
 		},
 		{
 			Name:   "SigningMethodRS256 with bad e",
@@ -531,7 +531,7 @@ func TestServeHTTP(tester *testing.T) {
 			Claims:     `{"aud": "test"}`,
 			Method:     jwt.SigningMethodRS256,
 			HeaderName: "Authorization",
-			Actions:    map[string]string{"set:e": "dummy"},
+			Actions:    map[string]string{"set:e": invalid},
 		},
 		{
 			Name:   "SigningMethodES256 with missing kid",
@@ -553,7 +553,7 @@ func TestServeHTTP(tester *testing.T) {
 			Claims:     `{"aud": "test"}`,
 			Method:     jwt.SigningMethodES256,
 			HeaderName: "Authorization",
-			Actions:    map[string]string{"set:x": "dummy"},
+			Actions:    map[string]string{"set:x": invalid},
 		},
 		{
 			Name:   "SigningMethodES256 with bad y",
@@ -564,7 +564,7 @@ func TestServeHTTP(tester *testing.T) {
 			Claims:     `{"aud": "test"}`,
 			Method:     jwt.SigningMethodES256,
 			HeaderName: "Authorization",
-			Actions:    map[string]string{"set:y": "dummy"},
+			Actions:    map[string]string{"set:y": invalid},
 		},
 		{
 			Name:   "SigningMethodES256 with missing crv",
@@ -575,7 +575,7 @@ func TestServeHTTP(tester *testing.T) {
 			Claims:     `{"aud": "test"}`,
 			Method:     jwt.SigningMethodES256,
 			HeaderName: "Authorization",
-			Actions:    map[string]string{"set:crv": "dummy"},
+			Actions:    map[string]string{"set:crv": invalid},
 		},
 		{
 			Name:   "SigningMethodES256 with missing crv and alg",
@@ -586,7 +586,7 @@ func TestServeHTTP(tester *testing.T) {
 			Claims:     `{"aud": "test"}`,
 			Method:     jwt.SigningMethodES256,
 			HeaderName: "Authorization",
-			Actions:    map[string]string{"set:crv": "dummy", "set:alg": "dummy"},
+			Actions:    map[string]string{"set:crv": invalid, "set:alg": invalid},
 		},
 		{
 			Name:   "SigningMethodES384 with missing crv",
@@ -597,7 +597,7 @@ func TestServeHTTP(tester *testing.T) {
 			Claims:     `{"aud": "test"}`,
 			Method:     jwt.SigningMethodES384,
 			HeaderName: "Authorization",
-			Actions:    map[string]string{"set:crv": "dummy"},
+			Actions:    map[string]string{"set:crv": invalid},
 		},
 		{
 			Name:   "SigningMethodES512 with missing crv",
@@ -608,7 +608,7 @@ func TestServeHTTP(tester *testing.T) {
 			Claims:     `{"aud": "test"}`,
 			Method:     jwt.SigningMethodES512,
 			HeaderName: "Authorization",
-			Actions:    map[string]string{"set:crv": "dummy"},
+			Actions:    map[string]string{"set:crv": invalid},
 		},
 		{
 			Name:   "SigningMethodRS256 in fixed secret",
