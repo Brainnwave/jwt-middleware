@@ -99,9 +99,9 @@ func TestServeHTTP(tester *testing.T) {
 			Name:   "token in header with Bearer prefix",
 			Expect: http.StatusOK,
 			Config: `
-					secret: fixed secret
-					require:
-						aud: test`,
+				secret: fixed secret
+				require:
+					aud: test`,
 			Claims:       `{"aud": "test"}`,
 			Method:       jwt.SigningMethodHS256,
 			HeaderName:   "Authorization",
@@ -112,11 +112,11 @@ func TestServeHTTP(tester *testing.T) {
 			Name:   "token in query string",
 			Expect: http.StatusOK,
 			Config: `
-					secret: fixed secret
-					require:
-						aud: test
-					parameterName: "token"
-					forwardToken: false`,
+				secret: fixed secret
+				require:
+					aud: test
+				parameterName: "token"
+				forwardToken: false`,
 			Claims:        `{"aud": "test"}`,
 			Method:        jwt.SigningMethodHS256,
 			ParameterName: "token",
