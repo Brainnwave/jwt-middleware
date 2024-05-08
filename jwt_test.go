@@ -677,8 +677,9 @@ func TestServeHTTP(tester *testing.T) {
 			CookieName: "Authorization",
 		},
 		{
-			Name:   "EC fixed secrets",
-			Expect: http.StatusOK,
+			Name:         "EC fixed secrets",
+			Expect:       http.StatusOK,
+			ExpectCounts: map[string]int{jwksCalls: 0},
 			Config: `
 				secrets:
 					43263adb454e2217b26212b925498a139438912d: |
@@ -686,6 +687,7 @@ func TestServeHTTP(tester *testing.T) {
 						MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEE7gFCo/g2PQmC3i5kIqVgCCzr2D1
 						nbCeipqfvK1rkqmKfhb7rlVehfC7ITUAy8NIvQ/AsXClvgHDv55BfOoL6w==
 						-----END EC PUBLIC KEY-----
+				skipPrefetch: true
 				require:
 					aud: test`,
 			Claims: `{"aud": "test"}`,
@@ -892,9 +894,8 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:           "redirect with bad interpolation",
-			Expect:         http.StatusInternalServerError,
-			ExpectRedirect: "https://example.com/unauthorized?return_to=https://app.example.com/home?id=1",
+			Name:   "redirect with bad interpolation",
+			Expect: http.StatusInternalServerError,
 			Config: `
 				secret: fixed secret
 				require:
@@ -975,17 +976,17 @@ func TestServeHTTP(tester *testing.T) {
 
 			// Check expectations
 			if response.Code != test.Expect {
-				tester.Fatal("incorrect result code: got:", response.Code, "expected:", test.Expect, "body:", response.Body.String())
+				tester.Fatalf("incorrect result code: got:%d expected:%d body: %s", response.Code, test.Expect, response.Body.String())
 			}
 
 			expectAllow := test.Expect == http.StatusOK
 			if test.Allowed != expectAllow {
-				tester.Fatal("incorrect allowed/denied: was allowed:", test.Allowed, "should allow:", expectAllow)
+				tester.Fatalf("incorrect allowed/denied: was allowed:%t should allow:%t", test.Allowed, expectAllow)
 			}
 
-			if response.Code == http.StatusFound && test.ExpectRedirect != "" {
+			if test.ExpectRedirect != "" {
 				if response.Header().Get("Location") != test.ExpectRedirect {
-					tester.Fatal("Expected redirect of " + test.ExpectRedirect + " but got " + response.Header().Get("Location"))
+					tester.Fatalf("Expected redirect of %s but got %s", test.ExpectRedirect, response.Header().Get("Location"))
 				}
 			}
 
