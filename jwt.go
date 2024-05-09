@@ -217,7 +217,23 @@ func (plugin *JWTPlugin) ServeHTTP(response http.ResponseWriter, request *http.R
 			http.Redirect(response, request, url, http.StatusFound)
 		} else {
 			// Non-interactive (i.e. API) clients should get a 401 or 403 response.
-			http.Error(response, err.Error(), status)
+			// If the request is a GRPC request, we return a GRPC compatible response.
+			if hasToken(request.Header.Get("Content-Type"), "application/grpc") {
+				// Set the content type to application/grpc
+				header := response.Header()
+				header.Set("Content-Type", "application/grpc")
+				// If status code is 401, set grpc-status to 16 (UNAUTHENTICATED), else if status code is 403, set grpc-status to 7 (PERMISSION_DENIED)
+				if status == http.StatusUnauthorized {
+					header.Set("grpc-status", "16")
+					header.Set("grpc-message", "UNAUTHENTICATED")
+				} else if status == http.StatusForbidden {
+					header.Set("grpc-status", "7")
+					header.Set("grpc-message", "PERMISSION_DENIED")
+				}
+			} else {
+				// Regular HTTP response
+				http.Error(response, err.Error(), status)
+			}
 		}
 		return
 	}
@@ -669,4 +685,48 @@ func (plugin *JWTPlugin) extractTokenFromQuery(request *http.Request) string {
 		return token
 	}
 	return ""
+}
+
+// The following code is copied from the Go standard library net/http package, as hasToken is not exported.
+// We have also added '+' as a token boundary character.
+
+// hasToken returns true if the header contains the token.
+// case-insensitive, with space, comma boundaries.
+// header may contain mixed cased; token must be all lowercase.
+func hasToken(header, token string) bool {
+	if len(token) > len(header) || token == "" {
+		return false
+	}
+	if header == token {
+		return true
+	}
+	for start := 0; start <= len(header)-len(token); start++ {
+		// Check that first character is good.
+		// The token is ASCII, so checking only a single byte
+		// is sufficient. We skip this potential starting
+		// position if both the first byte and its potential
+		// ASCII uppercase equivalent (b|0x20) don't match.
+		// False positives ('^' => '~') are caught by EqualFold.
+		if character := header[start]; character != token[0] && character|0x20 != token[0] {
+			continue
+		}
+		// Check that start is on a valid token boundary.
+		if start > 0 && !isTokenBoundary(header[start-1]) {
+			continue
+		}
+		end := start + len(token)
+		// Check that end is on a valid token boundary.
+		if end != len(header) && !isTokenBoundary(header[end]) {
+			continue
+		}
+		if strings.EqualFold(header[start:end], token) {
+			return true
+		}
+	}
+	return false
+}
+
+// isTokenBoundary returns true if the character is a token boundary.
+func isTokenBoundary(character byte) bool {
+	return character == ' ' || character == ',' || character == '\t' || character == '+'
 }
