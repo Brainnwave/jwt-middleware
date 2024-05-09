@@ -27,30 +27,32 @@ import (
 )
 
 type Test struct {
-	Name              string             // The name of the test
-	Allowed           bool               // Whether the request was actually allowed through by the plugin (set by next)
-	Expect            int                // Response status code expected
-	ExpectCounts      map[string]int     // Map of expected counts
-	ExpectPluginError string             // If set, expect this error message from plugin
-	ExpectRedirect    string             // Full URL to expect redirection to
-	ExpectHeaders     map[string]string  // Headers to expect in the downstream request as passed to next
-	ExpectCookies     map[string]string  // Cookies to expect in the downstream request as passed to next
-	Config            string             // The dynamic yml configuration to pass to the plugin
-	URL               string             // Used to pass the URL from the server to the handlers (which must exist before the server)
-	Keys              jose.JSONWebKeySet // JWKS used in test server
-	Method            jwt.SigningMethod  // Signing method for the token
-	Private           string             // Private key to use to sign the token rather than generating one
-	Kid               string             // Kid for private key to use to sign the token rather than generating one
-	CookieName        string             // The name of the cookie to use
-	HeaderName        string             // The name of the header to use
-	ParameterName     string             // The name of the parameter to use
-	BearerPrefix      bool               // Whether to use the Bearer prefix or not
-	Cookies           map[string]string  // Cookies to set in the incomming request
-	Claims            string             // The claims to use in the token as a JSON string
-	ClaimsMap         jwt.MapClaims      // claims mapped from `Claims`
-	Actions           map[string]string  // Map of "actions" to take during the test, some are just flags and some have values
-	Environment       map[string]string  // Map of environment variables to simulate for the test
-	Counts            map[string]int     // Map of arbitrary counts recorded in the test
+	Name                  string             // The name of the test
+	Allowed               bool               // Whether the request was actually allowed through by the plugin (set by next)
+	Expect                int                // Response status code expected
+	ExpectCounts          map[string]int     // Map of expected counts
+	ExpectPluginError     string             // If set, expect this error message from plugin
+	ExpectRedirect        string             // Full URL to expect redirection to
+	ExpectHeaders         map[string]string  // Headers to expect in the downstream request as passed to next
+	ExpectCookies         map[string]string  // Cookies to expect in the downstream request as passed to next
+	ExpectResponseHeaders map[string]string  // Headers to expect in the response
+	Config                string             // The dynamic yml configuration to pass to the plugin
+	URL                   string             // Used to pass the URL from the server to the handlers (which must exist before the server)
+	Keys                  jose.JSONWebKeySet // JWKS used in test server
+	Method                jwt.SigningMethod  // Signing method for the token
+	Private               string             // Private key to use to sign the token rather than generating one
+	Kid                   string             // Kid for private key to use to sign the token rather than generating one
+	CookieName            string             // The name of the cookie to use
+	HeaderName            string             // The name of the header to use
+	ParameterName         string             // The name of the parameter to use
+	BearerPrefix          bool               // Whether to use the Bearer prefix or not
+	Cookies               map[string]string  // Cookies to set in the incomming request
+	Claims                string             // The claims to use in the token as a JSON string
+	ClaimsMap             jwt.MapClaims      // claims mapped from `Claims`
+	GrpcRequest           bool               // Whether to use the gRPC request context
+	Actions               map[string]string  // Map of "actions" to take during the test, some are just flags and some have values
+	Environment           map[string]string  // Map of environment variables to simulate for the test
+	Counts                map[string]int     // Map of arbitrary counts recorded in the test
 }
 
 const (
@@ -75,6 +77,20 @@ func TestServeHTTP(tester *testing.T) {
 		{
 			Name:   "no token",
 			Expect: http.StatusUnauthorized,
+			Config: `
+				issuers: https://example.com
+				require:
+					aud: test
+				parameterName: token`,
+		},
+		{
+			Name:        "no token grpc",
+			GrpcRequest: true,
+			Expect:      http.StatusOK,
+			ExpectResponseHeaders: map[string]string{
+				"grpc-status":  "16",
+				"grpc-message": "UNAUTHENTICATED",
+			},
 			Config: `
 				issuers: https://example.com
 				require:
@@ -161,6 +177,22 @@ func TestServeHTTP(tester *testing.T) {
 		{
 			Name:   "invalid claim",
 			Expect: http.StatusForbidden,
+			Config: `
+				secret: fixed secret
+				require:
+					aud: test`,
+			Claims:     `{"aud": "other"}`,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:        "invalid claim grpc",
+			GrpcRequest: true,
+			Expect:      http.StatusOK,
+			ExpectResponseHeaders: map[string]string{
+				"grpc-status":  "7",
+				"grpc-message": "PERMISSION_DENIED",
+			},
 			Config: `
 				secret: fixed secret
 				require:
@@ -979,7 +1011,7 @@ func TestServeHTTP(tester *testing.T) {
 				tester.Fatalf("incorrect result code: got:%d expected:%d body: %s", response.Code, test.Expect, response.Body.String())
 			}
 
-			expectAllow := test.Expect == http.StatusOK
+			expectAllow := test.Expect == http.StatusOK && test.GrpcRequest == false
 			if test.Allowed != expectAllow {
 				tester.Fatalf("incorrect allowed/denied: was allowed:%t should allow:%t", test.Allowed, expectAllow)
 			}
@@ -994,6 +1026,14 @@ func TestServeHTTP(tester *testing.T) {
 				for key, value := range test.ExpectHeaders {
 					if request.Header.Get(key) != value {
 						tester.Fatalf("Expected header %s=%s in %v", key, value, request.Header)
+					}
+				}
+			}
+
+			if test.ExpectResponseHeaders != nil {
+				for key, value := range test.ExpectResponseHeaders {
+					if response.Result().Header.Get(key) != value {
+						tester.Fatalf("Expected response header %s=%s in %v", key, value, request.Header)
 					}
 				}
 			}
@@ -1071,6 +1111,10 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 	request, err := http.NewRequestWithContext(context, http.MethodGet, "https://app.example.com/home?id=1", nil)
 	if err != nil {
 		return nil, nil, nil, err
+	}
+
+	if test.GrpcRequest == true {
+		addGrpcHeaderToRequest(request)
 	}
 
 	if test.Actions[useFixedSecret] == yes {
@@ -1184,6 +1228,10 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 		addTokenToRequest(test, config, request)
 	}
 	return plugin, request, server, nil
+}
+
+func addGrpcHeaderToRequest(request *http.Request) {
+	request.Header.Add("content-type", "application/grpc")
 }
 
 func addTokenToRequest(test *Test, config *Config, request *http.Request) {
