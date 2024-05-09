@@ -47,9 +47,9 @@ type Test struct {
 	ParameterName         string             // The name of the parameter to use
 	BearerPrefix          bool               // Whether to use the Bearer prefix or not
 	Cookies               map[string]string  // Cookies to set in the incomming request
+	Headers               map[string]string  // Headers to set in the incomming request
 	Claims                string             // The claims to use in the token as a JSON string
 	ClaimsMap             jwt.MapClaims      // claims mapped from `Claims`
-	GrpcRequest           bool               // Whether to use the gRPC request context
 	Actions               map[string]string  // Map of "actions" to take during the test, some are just flags and some have values
 	Environment           map[string]string  // Map of environment variables to simulate for the test
 	Counts                map[string]int     // Map of arbitrary counts recorded in the test
@@ -84,9 +84,9 @@ func TestServeHTTP(tester *testing.T) {
 				parameterName: token`,
 		},
 		{
-			Name:        "no token grpc",
-			GrpcRequest: true,
-			Expect:      http.StatusOK,
+			Name:    "no token grpc",
+			Expect:  http.StatusOK,
+			Headers: map[string]string{"content-type": "application/grpc"},
 			ExpectResponseHeaders: map[string]string{
 				"grpc-status":  "16",
 				"grpc-message": "UNAUTHENTICATED",
@@ -186,9 +186,37 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:        "invalid claim grpc",
-			GrpcRequest: true,
-			Expect:      http.StatusOK,
+			Name:    "valid grpc",
+			Expect:  http.StatusOK,
+			Headers: map[string]string{"content-type": "application/grpc"},
+			Config: `
+				secret: fixed secret
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:    "invalid claim grpc",
+			Expect:  http.StatusOK,
+			Headers: map[string]string{"content-type": "application/grpc"},
+			ExpectResponseHeaders: map[string]string{
+				"grpc-status":  "7",
+				"grpc-message": "PERMISSION_DENIED",
+			},
+			Config: `
+				secret: fixed secret
+				require:
+					aud: test`,
+			Claims:     `{"aud": "other"}`,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:    "invalid claim grpc with proto content-type",
+			Expect:  http.StatusOK,
+			Headers: map[string]string{"content-type": "application/grpc+proto"},
 			ExpectResponseHeaders: map[string]string{
 				"grpc-status":  "7",
 				"grpc-message": "PERMISSION_DENIED",
@@ -1011,7 +1039,7 @@ func TestServeHTTP(tester *testing.T) {
 				tester.Fatalf("incorrect result code: got:%d expected:%d body: %s", response.Code, test.Expect, response.Body.String())
 			}
 
-			expectAllow := test.Expect == http.StatusOK && test.GrpcRequest == false
+			expectAllow := !expectDisallow(&test)
 			if test.Allowed != expectAllow {
 				tester.Fatalf("incorrect allowed/denied: was allowed:%t should allow:%t", test.Allowed, expectAllow)
 			}
@@ -1057,6 +1085,24 @@ func TestServeHTTP(tester *testing.T) {
 			}
 		})
 	}
+}
+
+// expectDisallow returns true if the test is expected to disallow the request
+func expectDisallow(test *Test) bool {
+	// If the test is expected to return a non-200 status code, it should not be allowed
+	if test.Expect != http.StatusOK {
+		return true
+	}
+
+	// GRPC status codes 16 and 7 are unauthenticated and forbidden
+	if test.ExpectResponseHeaders != nil {
+		status := test.ExpectResponseHeaders["grpc-status"]
+		if status == "16" || status == "7" {
+			return true
+		}
+	}
+
+	return false
 }
 
 // createConfig creates a configuration from a YAML string using the same method traefik
@@ -1108,13 +1154,20 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 
 	context := context.Background()
 
+	// Create the request
 	request, err := http.NewRequestWithContext(context, http.MethodGet, "https://app.example.com/home?id=1", nil)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	if test.GrpcRequest == true {
-		addGrpcHeaderToRequest(request)
+	// Set cookie in the request
+	for key, value := range test.Cookies {
+		request.AddCookie(&http.Cookie{Name: key, Value: value})
+	}
+
+	// Set headers in the request
+	for key, value := range test.Headers {
+		request.Header.Add(key, value)
 	}
 
 	if test.Actions[useFixedSecret] == yes {
@@ -1230,18 +1283,10 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 	return plugin, request, server, nil
 }
 
-func addGrpcHeaderToRequest(request *http.Request) {
-	request.Header.Add("content-type", "application/grpc")
-}
-
 func addTokenToRequest(test *Test, config *Config, request *http.Request) {
 	// Set up request
 	if _, ok := test.Actions[traefikURL]; ok {
 		request.URL.Host = ""
-	}
-
-	for key, value := range test.Cookies {
-		request.AddCookie(&http.Cookie{Name: key, Value: value})
 	}
 
 	// Set the token in the request
