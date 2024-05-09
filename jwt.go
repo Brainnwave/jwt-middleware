@@ -220,17 +220,16 @@ func (plugin *JWTPlugin) ServeHTTP(response http.ResponseWriter, request *http.R
 			// If the request is a GRPC request, we return a GRPC compatible response.
 			if strings.Contains(request.Header.Get("Content-Type"), "application/grpc") {
 				// Set the content type to application/grpc
-				response.Header().Set("Content-Type", "application/grpc")
+				header := response.Header()
+				header.Set("Content-Type", "application/grpc")
 				// If status code is 401, set grpc-status to 16 (UNAUTHENTICATED), else if status code is 403, set grpc-status to 7 (PERMISSION_DENIED)
 				if status == http.StatusUnauthorized {
-					response.Header().Set("grpc-status", "16")
-					response.Header().Set("grpc-message", "UNAUTHENTICATED")
+					header.Set("grpc-status", "16")
+					header.Set("grpc-message", "UNAUTHENTICATED")
 				} else if status == http.StatusForbidden {
-					response.Header().Set("grpc-status", "7")
-					response.Header().Set("grpc-message", "PERMISSION_DENIED")
+					header.Set("grpc-status", "7")
+					header.Set("grpc-message", "PERMISSION_DENIED")
 				}
-				// Set HTTP status code to 200
-				response.WriteHeader(http.StatusOK)
 			} else {
 				// Regular HTTP response
 				http.Error(response, err.Error(), status)
