@@ -1545,3 +1545,48 @@ func trimLines(text string) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// The following tests are taken from net/http/header_test.go
+// We've added the + character to the token boundaries.
+func TestHasToken(tester *testing.T) {
+	tests := []struct {
+		header string
+		token  string
+		expect bool
+	}{
+		{"", "", false},
+		{"", "foo", false},
+		{"foo", "foo", true},
+		{"foo ", "foo", true},
+		{" foo", "foo", true},
+		{" foo ", "foo", true},
+		{"foo,bar", "foo", true},
+		{"bar,foo", "foo", true},
+		{"bar, foo", "foo", true},
+		{"bar,foo, baz", "foo", true},
+		{"bar, foo,baz", "foo", true},
+		{"bar,foo, baz", "foo", true},
+		{"bar, foo, baz", "foo", true},
+		{"FOO", "foo", true},
+		{"FOO ", "foo", true},
+		{" FOO", "foo", true},
+		{" FOO ", "foo", true},
+		{"FOO,BAR", "foo", true},
+		{"BAR,FOO", "foo", true},
+		{"BAR, FOO", "foo", true},
+		{"BAR,FOO, baz", "foo", true},
+		{"BAR, FOO,BAZ", "foo", true},
+		{"BAR,FOO, BAZ", "foo", true},
+		{"BAR, FOO, BAZ", "foo", true},
+		{"foobar", "foo", false},
+		{"barfoo ", "foo", false},
+		{"foo+bar", "foo", true},
+	}
+
+	for _, test := range tests {
+		result := hasToken(test.header, test.token)
+		if result != test.expect {
+			tester.Errorf("hasToken(%q, %q) = %v; expect %v", test.header, test.token, result, test.expect)
+		}
+	}
+}
