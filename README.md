@@ -9,6 +9,7 @@ This is a middleware plugin for [Traefik](https://github.com/containous/traefik)
 * Dynamic lookup of public keys from the well-known OpenID configuration of whitelisted issuers.
 * Flexible claim checks, including optional wildcards and Go template interpolation.
 * Configurable HTTP redirects for unauthorized and forbidden calls for interactive requests.
+* gRPC compatibility.
 
 ## Configuration
 
@@ -18,7 +19,7 @@ experimental:
   plugins:
     jwt:
       moduleName: github.com/Brainnwave/jwt-middleware
-      version: v1.1.13
+      version: v1.1.14
 ```
 1b. or with command-line options:
 
@@ -26,7 +27,7 @@ experimental:
 command:
   ...
   - "--experimental.plugins.jwt.modulename=github.com/Brainnwave/jwt-middleware"
-  - "--experimental.plugins.jwt.version=v1.1.13"
+  - "--experimental.plugins.jwt.version=v1.1.14"
 ```
 
 2) Configure and activate the plugin as a middleware in your dynamic traefik config:
