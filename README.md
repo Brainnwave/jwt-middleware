@@ -83,7 +83,7 @@ Name | Description
 
 These variables are useful with dynamic claim requirements, particularly in multitenancy scenarios. However, if interpolating `Host` as a requirement, care must be taken to ensure that the service can only be reached through that hostname and not directly by some public IP. I.e. routing should be well-controlled, such as behind an API gateway, proxy or other ingress selecting on `Host`, or where all traefik rules are guaranteed to match using `Host`. Otherwise, it would be easy to spoof a different `Host` by fabricating a DNS record for that IP externally; a static requirement should be used instead in such an architecture.
 
-Addiionally, all environment variables are accessible with template interpolation, which makes programmatically setting a static value in the traefik dynamic config file easier.
+Additionally, all environment variables are accessible with template interpolation, which makes programmatically setting a static value in the traefik dynamic config file easier.
 Note that the per-request variables will overwrite traefiks view of an environment variable with the same name, so any shadowed enviorment variables need to be renamed appropriately.`
 
 
