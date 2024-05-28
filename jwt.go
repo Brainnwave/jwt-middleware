@@ -585,26 +585,27 @@ func createTemplate(text string) *template.Template {
 // requirement in the configuration file (as rewriting the configuration file is harder than setting environment variables).
 func (plugin *JWTPlugin) createTemplateVariables(request *http.Request) *TemplateVariables {
 	// copy the environment variables
-	variables := make(TemplateVariables, len(plugin.environment)+4)
+	variables := make(TemplateVariables, len(plugin.environment)+6)
 	for key, value := range plugin.environment {
 		variables[key] = value
 	}
 
+	variables["Method"] = request.Method
+	variables["Host"] = request.Host
+	variables["Path"] = request.URL.RequestURI()
 	if request.URL.Host != "" {
+		// If request.URL.Host is set, we can use all the URL values directly
 		variables["Scheme"] = request.URL.Scheme
-		variables["Host"] = request.URL.Host
-		variables["Path"] = request.URL.Path
 		variables["URL"] = request.URL.String()
 	} else {
-		// (In at lease some situations) Traefik sets only the path in the request.URL, so we need to reconstruct it
+		// (In at least some situations) Traefik sets only the path in the request.URL, so we need to reconstruct it
 		variables["Scheme"] = request.Header.Get("X-Forwarded-Proto")
 		if variables["Scheme"] == "" {
 			variables["Scheme"] = "https"
 		}
-		variables["Host"] = request.Host
-		variables["Path"] = request.URL.RequestURI()
 		variables["URL"] = fmt.Sprintf("%s://%s%s", variables["Scheme"], variables["Host"], variables["Path"])
 	}
+	variables["EscapedURL"] = url.QueryEscape(variables["URL"])
 
 	return &variables
 }

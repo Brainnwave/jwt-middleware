@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -914,13 +915,13 @@ func TestServeHTTP(tester *testing.T) {
 		{
 			Name:           "redirect with expired token",
 			Expect:         http.StatusFound,
-			ExpectRedirect: "https://example.com/login?return_to=https://app.example.com/home?id=1",
+			ExpectRedirect: "https://example.com/login?return_to=https%3A%2F%2Fapp.example.com%2Fhome%3Fid%3D1%26other%3D2",
 			Config: `
 				secret: fixed secret
 				require:
 					aud: test
-				redirectUnauthorized: https://example.com/login?return_to={{.URL}}
-				redirectForbidden: https://example.com/unauthorized?return_to={{.URL}}`,
+				redirectUnauthorized: https://example.com/login?return_to={{.EscapedURL}}
+				redirectForbidden: https://example.com/unauthorized?return_to={{.EscapedURL}}`,
 			Claims:     `{"aud": "test", "exp": 1692043084}`,
 			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
@@ -928,13 +929,13 @@ func TestServeHTTP(tester *testing.T) {
 		{
 			Name:           "redirect with expired token and traefik-style URL",
 			Expect:         http.StatusFound,
-			ExpectRedirect: "https://example.com/login?return_to=https://app.example.com/home?id=1",
+			ExpectRedirect: "https://example.com/login?return_to=https%3A%2F%2Fapp.example.com%2Fhome%3Fid%3D1%26other%3D2",
 			Config: `
 				secret: fixed secret
 				require:
 					aud: test
-				redirectUnauthorized: https://example.com/login?return_to={{.URL}}
-				redirectForbidden: https://example.com/unauthorized?return_to={{.URL}}`,
+				redirectUnauthorized: https://example.com/login?return_to={{.EscapedURL}}
+				redirectForbidden: https://example.com/unauthorized?return_to={{.EscapedURL}}`,
 			Claims:     `{"aud": "test", "exp": 1692043084}`,
 			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
@@ -943,13 +944,13 @@ func TestServeHTTP(tester *testing.T) {
 		{
 			Name:           "redirect with missing claim",
 			Expect:         http.StatusFound,
-			ExpectRedirect: "https://example.com/unauthorized?return_to=https://app.example.com/home?id=1",
+			ExpectRedirect: "https://example.com/unauthorized?return_to=https%3A%2F%2Fapp.example.com%2Fhome%3Fid%3D1%26other%3D2",
 			Config: `
 				secret: fixed secret
 				require:
 					aud: test
-				redirectUnauthorized: https://example.com/login?return_to={{.URL}}
-				redirectForbidden: https://example.com/unauthorized?return_to={{.URL}}`,
+				redirectUnauthorized: https://example.com/login?return_to={{.EscapedURL}}
+				redirectForbidden: https://example.com/unauthorized?return_to={{.EscapedURL}}`,
 			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
 		},
@@ -960,7 +961,7 @@ func TestServeHTTP(tester *testing.T) {
 				secret: fixed secret
 				require:
 					aud: test
-				redirectUnauthorized: https://example.com/login?return_to={{.URL}}
+				redirectUnauthorized: https://example.com/login?return_to={{.EscapedURL}}
 				redirectForbidden: https://example.com/unauthorized?return_to={{.Unknown}}`,
 			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
@@ -1013,7 +1014,6 @@ func TestServeHTTP(tester *testing.T) {
 			Claims:     `{"aud": "test"}`,
 			Method:     jwt.SigningMethodES256,
 			HeaderName: "Authorization",
-			//			Actions:    map[string]string{noAddIsser: yes},
 		},
 	}
 
@@ -1045,8 +1045,9 @@ func TestServeHTTP(tester *testing.T) {
 			}
 
 			if test.ExpectRedirect != "" {
-				if response.Header().Get("Location") != test.ExpectRedirect {
-					tester.Fatalf("Expected redirect of %s but got %s", test.ExpectRedirect, response.Header().Get("Location"))
+				location := html.UnescapeString(response.Header().Get("Location"))
+				if test.ExpectRedirect != location {
+					tester.Fatalf("Expected redirect of %s but got %s", test.ExpectRedirect, location)
 				}
 			}
 
@@ -1155,7 +1156,7 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 	context := context.Background()
 
 	// Create the request
-	request, err := http.NewRequestWithContext(context, http.MethodGet, "https://app.example.com/home?id=1", nil)
+	request, err := http.NewRequestWithContext(context, http.MethodGet, "https://app.example.com/home?id=1&other=2", nil)
 	if err != nil {
 		return nil, nil, nil, err
 	}
