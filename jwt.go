@@ -590,10 +590,12 @@ func (plugin *JWTPlugin) createTemplateVariables(request *http.Request) *Templat
 		variables[key] = value
 	}
 
+	variables["Method"] = request.Method
+	variables["Host"] = request.Host
+	variables["Path"] = request.URL.RequestURI()
 	if request.URL.Host != "" {
+		// If request.URL.Host is set, we can use all the URL values directly
 		variables["Scheme"] = request.URL.Scheme
-		variables["Host"] = request.URL.Host
-		variables["Path"] = request.URL.Path
 		variables["URL"] = request.URL.String()
 	} else {
 		// (In at lease some situations) Traefik sets only the path in the request.URL, so we need to reconstruct it
@@ -601,10 +603,9 @@ func (plugin *JWTPlugin) createTemplateVariables(request *http.Request) *Templat
 		if variables["Scheme"] == "" {
 			variables["Scheme"] = "https"
 		}
-		variables["Host"] = request.Host
-		variables["Path"] = request.URL.RequestURI()
 		variables["URL"] = fmt.Sprintf("%s://%s%s", variables["Scheme"], variables["Host"], variables["Path"])
 	}
+	variables["EscapedURL"] = url.QueryEscape(variables["URL"])
 
 	return &variables
 }

@@ -915,13 +915,13 @@ func TestServeHTTP(tester *testing.T) {
 		{
 			Name:           "redirect with expired token",
 			Expect:         http.StatusFound,
-			ExpectRedirect: "https://example.com/login?return_to=https://app.example.com/home?id=1&other=2",
+			ExpectRedirect: "https://example.com/login?return_to=https%3A%2F%2Fapp.example.com%2Fhome%3Fid%3D1%26other%3D2",
 			Config: `
 				secret: fixed secret
 				require:
 					aud: test
-				redirectUnauthorized: https://example.com/login?return_to={{.URL}}
-				redirectForbidden: https://example.com/unauthorized?return_to={{.URL}}`,
+				redirectUnauthorized: https://example.com/login?return_to={{.EscapedURL}}
+				redirectForbidden: https://example.com/unauthorized?return_to={{.EscapedURL}}`,
 			Claims:     `{"aud": "test", "exp": 1692043084}`,
 			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
@@ -929,13 +929,13 @@ func TestServeHTTP(tester *testing.T) {
 		{
 			Name:           "redirect with expired token and traefik-style URL",
 			Expect:         http.StatusFound,
-			ExpectRedirect: "https://example.com/login?return_to=https://app.example.com/home?id=1&other=2",
+			ExpectRedirect: "https://example.com/login?return_to=https%3A%2F%2Fapp.example.com%2Fhome%3Fid%3D1%26other%3D2",
 			Config: `
 				secret: fixed secret
 				require:
 					aud: test
-				redirectUnauthorized: https://example.com/login?return_to={{.URL}}
-				redirectForbidden: https://example.com/unauthorized?return_to={{.URL}}`,
+				redirectUnauthorized: https://example.com/login?return_to={{.EscapedURL}}
+				redirectForbidden: https://example.com/unauthorized?return_to={{.EscapedURL}}`,
 			Claims:     `{"aud": "test", "exp": 1692043084}`,
 			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
@@ -944,13 +944,13 @@ func TestServeHTTP(tester *testing.T) {
 		{
 			Name:           "redirect with missing claim",
 			Expect:         http.StatusFound,
-			ExpectRedirect: "https://example.com/unauthorized?return_to=https://app.example.com/home?id=1&other=2",
+			ExpectRedirect: "https://example.com/unauthorized?return_to=https%3A%2F%2Fapp.example.com%2Fhome%3Fid%3D1%26other%3D2",
 			Config: `
 				secret: fixed secret
 				require:
 					aud: test
-				redirectUnauthorized: https://example.com/login?return_to={{.URL}}
-				redirectForbidden: https://example.com/unauthorized?return_to={{.URL}}`,
+				redirectUnauthorized: https://example.com/login?return_to={{.EscapedURL}}
+				redirectForbidden: https://example.com/unauthorized?return_to={{.EscapedURL}}`,
 			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
 		},
@@ -961,7 +961,7 @@ func TestServeHTTP(tester *testing.T) {
 				secret: fixed secret
 				require:
 					aud: test
-				redirectUnauthorized: https://example.com/login?return_to={{.URL}}
+				redirectUnauthorized: https://example.com/login?return_to={{.EscapedURL}}
 				redirectForbidden: https://example.com/unauthorized?return_to={{.Unknown}}`,
 			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
