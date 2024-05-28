@@ -19,7 +19,7 @@ experimental:
   plugins:
     jwt:
       moduleName: github.com/Brainnwave/jwt-middleware
-      version: v1.1.14
+      version: v1.1.15
 ```
 1b. or with command-line options:
 
@@ -27,7 +27,7 @@ experimental:
 command:
   ...
   - "--experimental.plugins.jwt.modulename=github.com/Brainnwave/jwt-middleware"
-  - "--experimental.plugins.jwt.version=v1.1.14"
+  - "--experimental.plugins.jwt.version=v1.1.15"
 ```
 
 2) Configure and activate the plugin as a middleware in your dynamic traefik config:
@@ -77,6 +77,7 @@ The following per-request variables are available for Go template interpolation:
 Name | Description
 ----|----
 `{{.URL}}` | Full request URL including scheme and any query string parameters.
+`{{.EscapedURL}}` | URL-encoded version of `{{.URL}}` suitable for use in a URL query, such as a `return_to` in an HTTP redirect.
 `{{.Scheme}}` | https or http
 `{{.Host}}` | Host name only, without scheme, including port if any
 `{{.Path}}` | Path and any query string parameters
@@ -164,7 +165,7 @@ http:
             - https://auth.example.com
           require:
             aud: test.example.com
-          redirectUnauthorized: "https://example.com/login?return_to={{`{{.URL}}`}}"
+          redirectUnauthorized: "https://example.com/login?return_to={{`{{.EscapedURL}}`}}"
           redirectForbidden: "https://example.com/unauthorized"
 ```
 
@@ -185,7 +186,7 @@ http:
       plugin:
         jwt:
           <<: *secure-api
-          redirectUnauthorized: "https://example.com/login?return_to={{`{{.URL}}`}}"
+          redirectUnauthorized: "https://example.com/login?return_to={{`{{.EscapedURL}}`}}"
           redirectForbidden: "https://example.com/unauthorized"
 ```
 
@@ -248,7 +249,7 @@ http:
             - auth.example.com
           require:
             aud: test.example.com
-          redirectUnauthorized: "https://example.com/login?return_to={{`{{.URL}}`}}"
+          redirectUnauthorized: "https://example.com/login?return_to={{`{{.EscapedURL}}`}}"
           redirectForbidden: "https://example.com/unauthorized"
 ```
 
