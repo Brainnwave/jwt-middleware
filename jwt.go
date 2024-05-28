@@ -598,7 +598,7 @@ func (plugin *JWTPlugin) createTemplateVariables(request *http.Request) *Templat
 		variables["Scheme"] = request.URL.Scheme
 		variables["URL"] = request.URL.String()
 	} else {
-		// (In at lease some situations) Traefik sets only the path in the request.URL, so we need to reconstruct it
+		// (In at least some situations) Traefik sets only the path in the request.URL, so we need to reconstruct it
 		variables["Scheme"] = request.Header.Get("X-Forwarded-Proto")
 		if variables["Scheme"] == "" {
 			variables["Scheme"] = "https"
