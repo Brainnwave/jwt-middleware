@@ -585,7 +585,7 @@ func createTemplate(text string) *template.Template {
 // requirement in the configuration file (as rewriting the configuration file is harder than setting environment variables).
 func (plugin *JWTPlugin) createTemplateVariables(request *http.Request) *TemplateVariables {
 	// copy the environment variables
-	variables := make(TemplateVariables, len(plugin.environment)+4)
+	variables := make(TemplateVariables, len(plugin.environment)+6)
 	for key, value := range plugin.environment {
 		variables[key] = value
 	}
