@@ -920,8 +920,8 @@ func TestServeHTTP(tester *testing.T) {
 				secret: fixed secret
 				require:
 					aud: test
-				redirectUnauthorized: https://example.com/login?return_to={{.EscapedURL}}
-				redirectForbidden: https://example.com/unauthorized?return_to={{.EscapedURL}}`,
+				redirectUnauthorized: https://example.com/login?return_to={{URLQueryEscape .URL}}
+				redirectForbidden: https://example.com/unauthorized?return_to={{URLQueryEscape .URL}}`,
 			Claims:     `{"aud": "test", "exp": 1692043084}`,
 			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
@@ -934,8 +934,8 @@ func TestServeHTTP(tester *testing.T) {
 				secret: fixed secret
 				require:
 					aud: test
-				redirectUnauthorized: https://example.com/login?return_to={{.EscapedURL}}
-				redirectForbidden: https://example.com/unauthorized?return_to={{.EscapedURL}}`,
+				redirectUnauthorized: https://example.com/login?return_to={{URLQueryEscape .URL}}
+				redirectForbidden: https://example.com/unauthorized?return_to={{URLQueryEscape .URL}}`,
 			Claims:     `{"aud": "test", "exp": 1692043084}`,
 			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
@@ -949,8 +949,8 @@ func TestServeHTTP(tester *testing.T) {
 				secret: fixed secret
 				require:
 					aud: test
-				redirectUnauthorized: https://example.com/login?return_to={{.EscapedURL}}
-				redirectForbidden: https://example.com/unauthorized?return_to={{.EscapedURL}}`,
+				redirectUnauthorized: https://example.com/login?return_to={{URLQueryEscape .URL}}
+				redirectForbidden: https://example.com/unauthorized?return_to={{URLQueryEscape .URL}}`,
 			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
 		},
@@ -961,8 +961,8 @@ func TestServeHTTP(tester *testing.T) {
 				secret: fixed secret
 				require:
 					aud: test
-				redirectUnauthorized: https://example.com/login?return_to={{.EscapedURL}}
-				redirectForbidden: https://example.com/unauthorized?return_to={{.Unknown}}`,
+				redirectUnauthorized: https://example.com/login?return_to={{URLQueryEscape .URL}}
+				redirectForbidden: https://example.com/unauthorized?return_to={{URLQueryEscape .Unknown}}`,
 			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
 		},

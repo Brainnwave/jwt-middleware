@@ -72,16 +72,17 @@ Name | Description
 `insecureSkipVerify` | A list of issuers' domains for which TLS certificates should not be verified (i.e. use `InsecureSkipVerify: true`). Only the hostname/domain should be specified (i.e. no scheme or trailing slash). Applies to both the openid-configuration and jwks calls.
 
 ### Template Interpolation
-The following per-request variables are available for Go template interpolation:
+The following per-request variables and functions are available for Go template interpolation:
 
 Name | Description
 ----|----
 `{{.URL}}` | Full request URL including scheme and any query string parameters.
-`{{.EscapedURL}}` | URL-encoded version of `{{.URL}}` suitable for use in a URL query, such as a `return_to` in an HTTP redirect.
 `{{.Method}}` | HTTP method of request (uppercase).
 `{{.Scheme}}` | https or http.
 `{{.Host}}` | Host name only, without scheme, including port if any.
 `{{.Path}}` | Path and any query string parameters.
+`{{URLQueryEscape}}` | Function: escape a variable suitable for use in a URL query (uses `url.QueryEscape`), such as `{{.URL}}` for use as a `return_to` paramater in an HTTP redirect.
+`{{HTMLEscape}}` | Function: escape a variable using HTML escapes (uses `html.EscapeString`).
 
 These variables are useful with dynamic claim requirements, particularly in multitenancy scenarios. However, if interpolating `Host` as a requirement, care must be taken to ensure that the service can only be reached through that hostname and not directly by some public IP. I.e. routing should be well-controlled, such as behind an API gateway, proxy or other ingress selecting on `Host`, or where all traefik rules are guaranteed to match using `Host`. Otherwise, it would be easy to spoof a different `Host` by fabricating a DNS record for that IP externally; a static requirement should be used instead in such an architecture.
 
@@ -166,7 +167,7 @@ http:
             - https://auth.example.com
           require:
             aud: test.example.com
-          redirectUnauthorized: "https://example.com/login?return_to={{`{{.EscapedURL}}`}}"
+          redirectUnauthorized: "https://example.com/login?return_to={{`{{URLQueryEscape .URL}}`}}"
           redirectForbidden: "https://example.com/unauthorized"
 ```
 
@@ -187,7 +188,7 @@ http:
       plugin:
         jwt:
           <<: *secure-api
-          redirectUnauthorized: "https://example.com/login?return_to={{`{{.EscapedURL}}`}}"
+          redirectUnauthorized: "https://example.com/login?return_to={{`{{URLQueryEscape .URL}}`}}"
           redirectForbidden: "https://example.com/unauthorized"
 ```
 
@@ -250,7 +251,7 @@ http:
             - auth.example.com
           require:
             aud: test.example.com
-          redirectUnauthorized: "https://example.com/login?return_to={{`{{.EscapedURL}}`}}"
+          redirectUnauthorized: "https://example.com/login?return_to={{`{{URLQueryEscape .URL}}`}}"
           redirectForbidden: "https://example.com/unauthorized"
 ```
 
