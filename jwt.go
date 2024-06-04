@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"html"
 	"html/template"
 	"log"
 	"net/http"
@@ -576,7 +577,11 @@ func createTemplate(text string) *template.Template {
 	if text == "" {
 		return nil
 	}
-	return template.Must(template.New("template").Option("missingkey=error").Parse(text))
+	functions := template.FuncMap{
+		"URLQueryEscape": url.QueryEscape,
+		"HTMLEscape":     html.EscapeString,
+	}
+	return template.Must(template.New("template").Funcs(functions).Option("missingkey=error").Parse(text))
 }
 
 // createTemplateVariables creates a template data map for the given request.
@@ -605,7 +610,6 @@ func (plugin *JWTPlugin) createTemplateVariables(request *http.Request) *Templat
 		}
 		variables["URL"] = fmt.Sprintf("%s://%s%s", variables["Scheme"], variables["Host"], variables["Path"])
 	}
-	variables["EscapedURL"] = url.QueryEscape(variables["URL"])
 
 	return &variables
 }
