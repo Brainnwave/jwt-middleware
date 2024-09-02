@@ -55,8 +55,8 @@ The plugin supports the following configuration options.
 
 Name | Description
 ---- | ----
-`issuers` | A list of trusted issuers to fetch keys (JWKs) from. Keys will be prefetched from these issuers on startup (unless `skipPrefetch` is set). If a request presents a `kid` that is not known and its `iss` claim matches one of the `issuers`, the plugin will refresh the keys for that issuer. On each fetch, any keys previously fetched from the issuer that are no longer retrieved will be removed from the plugin's cache. Keys are fully reference counted by `kid`: if they same `kid` is present from another provider (or from `secrets` below) it will not be removed from the cache until no longer referenced. fnmatch-style wildcards are supported for `issuers` to accommodate some multitenancy scenarios (e.g. `https://*.example.com`). It is not recommended to use wildcard `issuers` unless you understand the implication that any webserver on your domain could be used to spoof a JWK endpoint and you have full confidence in your DNS security and what is running on all servers within the domain in question. 
-`secret` | A shared HMAC secret or a fixed public key to use for signature validation. A fixed secret may be used in conjunction with `issuers` to combine static and dynamic keys. This can be useful when transitioning from earlier systems or for machine-to-machine tokens signed with internal keys. Note that if a dynamic key is not matched for a presented key, but a static secret is configured, the static secret will be tried as a fallback key. If this secret is not of the correct type for the presented key, an error such as `token signature is invalid: key is of invalid type` will be returned to the user, which may be confusing. 
+`issuers` | A list of trusted issuers to fetch keys (JWKs) from. Keys will be prefetched from these issuers on startup (unless `skipPrefetch` is set). If an inbound request presents a token signed with a key (`kid`) that is not known and its `iss` claim matches one of the `issuers`, the plugin will refresh the keys for that issuer. On each fetch, any keys previously fetched from the issuer that are no longer retrieved will be removed from the plugin's cache. Keys are fully reference counted by `kid`: if they same `kid` is present from another provider (or from `secrets` below) it will not be removed from the cache until no longer referenced. fnmatch-style wildcards are supported for `issuers` to accommodate some multitenancy scenarios (e.g. `https://*.example.com`). It is not recommended to use wildcard `issuers` unless you understand the implication that any webserver on your domain could be used to spoof a JWK endpoint and you have full confidence in what is running on all servers within the domain in question. 
+`secret` | A shared HMAC secret or a fixed public key to use for signature validation. A fixed secret may be used in conjunction with `issuers` to combine static and dynamic keys. This can be useful when transitioning from earlier systems or for machine-to-machine tokens signed with internal keys. Note that if a dynamic key is not matched for a presented token's key, but a static secret is configured, the static secret will be tried as a fallback key. If this secret is not of the correct type for the presented key, an error such as `token signature is invalid: key is of invalid type` will be returned to the user, which may be confusing. 
 `secrets` | A map of kid -> secret. As `secret` above, these may be used in combination with `issuers`. Any secrets provided here will be preloaded into the plugin's cache. Any presented tokens with matching `kid`s will therefore not need have the key fetched from the issuer. This mechanism is preferred over a single anonymous `secret` when a `kid` is used, as it avoids the fallback type message described above.
 `skipPrefetch` | Don't prefetch keys from `issuers`. This is useful if all the expected secrets are provided in `secrets`, especially in situations where traefik or its services are frequently restarted, to save from hitting the issuer JWKS endpoint unnecessarily.
 `require` | A map of zero or more claims that must all be present and match against one or more values. If no claims are specified in `require`, all tokens that are validly signed by the trusted issuers or secrets will pass. If more than one claim is specified, each is required (i.e. an AND relationship exists for all the specified claims). For each claim, multiple values may be specified and the claim will be valid if any matches (i.e. an OR relationship exists for required values within a claim). fnmatch-style wildcards are optionally supported for claims in issued JWTs. If you do not wish to support wildcard claims, simply do not put such wildcards into the JWTs that you issue. See below for examples and the variables available with template interpolation.
@@ -196,7 +196,7 @@ http:
 ```yaml
 http:
   middlewares:
-    secure-interactive:
+    secure-web:
       plugin:
         jwt:
           secret: |
@@ -212,7 +212,7 @@ http:
 ```yaml
 http:
   middlewares:
-    secure-interactive:
+    secure-web:
       plugin:
         jwt:
           issuers:
@@ -242,7 +242,7 @@ http:
 ```yaml
 http:
   middlewares:
-    secure-interactive:
+    secure-web:
       plugin:
         jwt:
           issuers:
