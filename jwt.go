@@ -671,7 +671,7 @@ func (plugin *JWTPlugin) extractTokenFromHeader(request *http.Request) string {
 		request.Header.Del(plugin.headerName)
 	}
 
-	if strings.HasPrefix(token, "Bearer ") {
+	if len(token) >= 7 && strings.EqualFold(token[:7], "Bearer ") {
 		return token[7:]
 	}
 	return token
