@@ -2,6 +2,8 @@
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=Brainnwave_jwt-middleware&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=Brainnwave_jwt-middleware)
 [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=Brainnwave_jwt-middleware&metric=coverage)](https://sonarcloud.io/summary/new_code?id=Brainnwave_jwt-middleware)
 
+** Please note that ongoing maintaince of this public project has moved to https://github.com/agilezebra/jwt-middleware.git **
+
 # Dynamic JWT Validation Middleware
 
 This is a middleware plugin for [Traefik](https://github.com/containous/traefik) with the following features:
